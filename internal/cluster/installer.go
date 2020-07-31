@@ -3,6 +3,8 @@ package cluster
 import (
 	context "context"
 
+	"github.com/filanov/bm-inventory/models"
+
 	logutil "github.com/filanov/bm-inventory/pkg/log"
 
 	"github.com/filanov/bm-inventory/internal/common"
@@ -33,7 +35,7 @@ func (i *installer) Install(ctx context.Context, c *common.Cluster, db *gorm.DB)
 
 	switch swag.StringValue(c.Status) {
 	case "":
-	case clusterStatusReady:
+	case clusterStatusPrepareForInstallation:
 		log.Infof("cluster %s is starting installation", c.ID)
 	case clusterStatusInsufficient:
 		masterKnownHosts, err := i.GetMasterNodesIds(ctx, c, db)
@@ -41,8 +43,12 @@ func (i *installer) Install(ctx context.Context, c *common.Cluster, db *gorm.DB)
 			return err
 		}
 		return errors.Errorf("cluster %s is expected to have exactly %d known master to be installed, got %d", c.ID, minHostsNeededForInstallation, len(masterKnownHosts))
+	case clusterStatusReady:
+		return errors.Errorf("cluster %s is ready expected %s", c.ID, clusterStatusPrepareForInstallation)
 	case clusterStatusInstalling:
 		return errors.Errorf("cluster %s is already installing", c.ID)
+	case models.ClusterStatusFinalizing:
+		return errors.Errorf("cluster %s is already %s", c.ID, models.ClusterStatusFinalizing)
 	case clusterStatusInstalled:
 		return errors.Errorf("cluster %s is already installed", c.ID)
 	case clusterStatusError:
@@ -51,8 +57,8 @@ func (i *installer) Install(ctx context.Context, c *common.Cluster, db *gorm.DB)
 		return errors.Errorf("cluster %s state is unclear - cluster state: %s", c.ID, swag.StringValue(c.Status))
 	}
 
-	_, err := updateState(clusterStatusInstalling, statusInfoInstalling, c, db, i.log)
-	if err != nil {
+	if _, err := updateClusterStatus(i.log, db, *c.ID, swag.StringValue(c.Status),
+		clusterStatusInstalling, statusInfoInstalling); err != nil {
 		return err
 	}
 

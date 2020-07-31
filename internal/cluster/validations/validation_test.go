@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/route53"
 	"github.com/aws/aws-sdk-go/service/route53/route53iface"
 	"github.com/danielerez/go-dns-client/pkg/dnsproviders"
-	_ "github.com/jinzhu/gorm/dialects/sqlite"
+	_ "github.com/jinzhu/gorm/dialects/postgres"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -128,6 +128,29 @@ var _ = Describe("Base DNS validation", func() {
 	})
 	It("validation failure - invalid subdomain", func() {
 		err := validateBaseDNS("abc.deftest.example.com", "abc", dnsProvider)
+		Expect(err).Should(HaveOccurred())
+	})
+})
+
+var _ = Describe("Cluster name validation", func() {
+	It("success", func() {
+		err := ValidateClusterNameFormat("test-1")
+		Expect(err).ShouldNot(HaveOccurred())
+	})
+	It("invalid format - special character", func() {
+		err := ValidateClusterNameFormat("test!")
+		Expect(err).Should(HaveOccurred())
+	})
+	It("invalid format - capital letter", func() {
+		err := ValidateClusterNameFormat("testA")
+		Expect(err).Should(HaveOccurred())
+	})
+	It("invalid format - starts with number", func() {
+		err := ValidateClusterNameFormat("1test")
+		Expect(err).Should(HaveOccurred())
+	})
+	It("invalid format - ends with hyphen", func() {
+		err := ValidateClusterNameFormat("test-")
 		Expect(err).Should(HaveOccurred())
 	})
 })

@@ -2,9 +2,9 @@ package host
 
 import (
 	"context"
-	"testing"
 
 	"github.com/filanov/bm-inventory/internal/common"
+	"github.com/filanov/bm-inventory/internal/events"
 	"github.com/filanov/bm-inventory/internal/hardware"
 	"github.com/filanov/bm-inventory/models"
 	"github.com/go-openapi/strfmt"
@@ -21,6 +21,7 @@ var _ = Describe("instructionmanager", func() {
 		ctx               = context.Background()
 		host              models.Host
 		db                *gorm.DB
+		mockEvents        *events.MockHandler
 		stepsReply        models.Steps
 		hostId, clusterId strfmt.UUID
 		stepsErr          error
@@ -28,11 +29,13 @@ var _ = Describe("instructionmanager", func() {
 		ctrl              *gomock.Controller
 		hwValidator       *hardware.MockValidator
 		instructionConfig InstructionConfig
+		dbName            = "instructionmanager"
 	)
 
 	BeforeEach(func() {
-		db = prepareDB()
+		db = common.PrepareTestDB(dbName)
 		ctrl = gomock.NewController(GinkgoT())
+		mockEvents = events.NewMockHandler(ctrl)
 		hwValidator = hardware.NewMockValidator(ctrl)
 		instMng = NewInstructionManager(getTestLog(), db, hwValidator, instructionConfig, nil)
 		hostId = strfmt.UUID(uuid.New().String())
@@ -40,7 +43,7 @@ var _ = Describe("instructionmanager", func() {
 		cluster := common.Cluster{Cluster: models.Cluster{ID: &clusterId}}
 		Expect(db.Create(&cluster).Error).ShouldNot(HaveOccurred())
 		host = getTestHost(hostId, clusterId, "unknown invalid state")
-		host.Role = RoleMaster
+		host.Role = models.HostRoleMaster
 		Expect(db.Create(&host).Error).ShouldNot(HaveOccurred())
 	})
 
@@ -51,39 +54,42 @@ var _ = Describe("instructionmanager", func() {
 			Expect(stepsErr).Should(BeNil())
 		})
 		It("discovering", func() {
-			checkStepsByState(HostStatusDiscovering, &host, db, instMng, hwValidator, ctx,
-				[]models.StepType{models.StepTypeHardwareInfo, models.StepTypeInventory, models.StepTypeConnectivityCheck})
+			checkStepsByState(HostStatusDiscovering, &host, db, mockEvents, instMng, hwValidator, ctx,
+				[]models.StepType{models.StepTypeInventory, models.StepTypeConnectivityCheck})
 		})
 		It("known", func() {
-
-			checkStepsByState(HostStatusKnown, &host, db, instMng, hwValidator, ctx,
+			checkStepsByState(HostStatusKnown, &host, db, mockEvents, instMng, hwValidator, ctx,
 				[]models.StepType{models.StepTypeConnectivityCheck, models.StepTypeFreeNetworkAddresses})
 		})
 		It("disconnected", func() {
-			checkStepsByState(HostStatusDisconnected, &host, db, instMng, hwValidator, ctx,
-				[]models.StepType{models.StepTypeHardwareInfo, models.StepTypeInventory, models.StepTypeConnectivityCheck})
+			checkStepsByState(HostStatusDisconnected, &host, db, mockEvents, instMng, hwValidator, ctx,
+				[]models.StepType{models.StepTypeInventory, models.StepTypeConnectivityCheck})
 		})
 		It("insufficient", func() {
-			checkStepsByState(HostStatusInsufficient, &host, db, instMng, hwValidator, ctx,
-				[]models.StepType{models.StepTypeHardwareInfo, models.StepTypeInventory, models.StepTypeConnectivityCheck, models.StepTypeFreeNetworkAddresses})
+			checkStepsByState(HostStatusInsufficient, &host, db, mockEvents, instMng, hwValidator, ctx,
+				[]models.StepType{models.StepTypeInventory, models.StepTypeConnectivityCheck, models.StepTypeFreeNetworkAddresses})
+		})
+		It("pending-for-input", func() {
+			checkStepsByState(HostStatusPendingForInput, &host, db, mockEvents, instMng, hwValidator, ctx,
+				[]models.StepType{models.StepTypeInventory, models.StepTypeConnectivityCheck, models.StepTypeFreeNetworkAddresses})
 		})
 		It("error", func() {
-			checkStepsByState(HostStatusError, &host, db, instMng, hwValidator, ctx,
-				[]models.StepType{})
+			checkStepsByState(HostStatusError, &host, db, mockEvents, instMng, hwValidator, ctx,
+				[]models.StepType{models.StepTypeExecute})
 		})
 		It("installing", func() {
-			checkStepsByState(HostStatusInstalling, &host, db, instMng, hwValidator, ctx,
+			checkStepsByState(HostStatusInstalling, &host, db, mockEvents, instMng, hwValidator, ctx,
 				[]models.StepType{models.StepTypeInstall})
 		})
 		It("reset", func() {
-			checkStepsByState(HostStatusResetting, &host, db, instMng, hwValidator, ctx,
-				[]models.StepType{models.StepTypeResetAgent})
+			checkStepsByState(HostStatusResetting, &host, db, mockEvents, instMng, hwValidator, ctx,
+				[]models.StepType{models.StepTypeResetInstallation})
 		})
 	})
 
 	AfterEach(func() {
 		// cleanup
-		db.Close()
+		common.DeleteTestDB(db, dbName)
 		ctrl.Finish()
 		stepsReply = models.Steps{}
 		stepsErr = nil
@@ -91,11 +97,12 @@ var _ = Describe("instructionmanager", func() {
 
 })
 
-func checkStepsByState(state string, host *models.Host, db *gorm.DB, instMng *InstructionManager, mockValidator *hardware.MockValidator, ctx context.Context,
+func checkStepsByState(state string, host *models.Host, db *gorm.DB, mockEvents *events.MockHandler, instMng *InstructionManager, mockValidator *hardware.MockValidator, ctx context.Context,
 	expectedStepTypes []models.StepType) {
-	updateReply, updateErr := updateState(getTestLog(), state, "", host, db)
+	mockEvents.EXPECT().AddEvent(gomock.Any(), host.ID.String(), common.GetEventSeverityFromHostStatus(state), gomock.Any(), gomock.Any(), host.ClusterID.String())
+	updateReply, updateErr := updateHostStatus(ctx, getTestLog(), db, mockEvents, host.ClusterID, *host.ID, *host.Status, state, "")
 	ExpectWithOffset(1, updateErr).ShouldNot(HaveOccurred())
-	ExpectWithOffset(1, updateReply.IsChanged).Should(BeTrue())
+	ExpectWithOffset(1, updateReply).ShouldNot(BeNil())
 	h := getHost(*host.ID, host.ClusterID, db)
 	ExpectWithOffset(1, swag.StringValue(h.Status)).Should(Equal(state))
 	validDiskSize := int64(128849018880)
@@ -117,9 +124,4 @@ func checkStepsByState(state string, host *models.Host, db *gorm.DB, instMng *In
 		ExpectWithOffset(1, step.StepType).Should(Equal(expectedStepTypes[i]))
 	}
 	ExpectWithOffset(1, stepsErr).ShouldNot(HaveOccurred())
-}
-
-func TestInstructionManager(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "instruction manager tests")
 }

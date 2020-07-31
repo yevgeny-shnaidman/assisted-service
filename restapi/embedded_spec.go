@@ -96,47 +96,6 @@ func init() {
         }
       }
     },
-    "/clusters/{clusterId}/hosts/{hostId}/progress": {
-      "put": {
-        "tags": [
-          "installer"
-        ],
-        "summary": "Update installation progress",
-        "operationId": "UpdateHostInstallProgress",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "The ID of the cluster to retrieve",
-            "name": "clusterId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "The ID of the host to retrieve",
-            "name": "hostId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "description": "New progress value",
-            "name": "host-install-progress-params",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/host-install-progress-params"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Update install progress"
-          }
-        }
-      }
-    },
     "/clusters/{cluster_id}": {
       "get": {
         "tags": [
@@ -284,6 +243,58 @@ func init() {
             "name": "cluster_id",
             "in": "path",
             "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Success.",
+            "schema": {
+              "$ref": "#/definitions/cluster"
+            }
+          },
+          "404": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          },
+          "409": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          },
+          "500": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          }
+        }
+      }
+    },
+    "/clusters/{cluster_id}/actions/complete_installation": {
+      "post": {
+        "tags": [
+          "installer"
+        ],
+        "summary": "Agent API to mark a finalizing installation as complete.",
+        "operationId": "CompleteInstallation",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "completion-params",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/completion-params"
+            }
           }
         ],
         "responses": {
@@ -478,7 +489,8 @@ func init() {
               "worker.ign",
               "kubeadmin-password",
               "kubeconfig",
-              "kubeconfig-noingress"
+              "kubeconfig-noingress",
+              "install-config.yaml"
             ],
             "type": "string",
             "name": "file_name",
@@ -604,7 +616,10 @@ func init() {
             }
           },
           "409": {
-            "description": "Error."
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
           },
           "500": {
             "description": "Error.",
@@ -794,6 +809,12 @@ func init() {
               "$ref": "#/definitions/error"
             }
           },
+          "404": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          },
           "500": {
             "description": "Error.",
             "schema": {
@@ -968,8 +989,11 @@ func init() {
           }
         ],
         "responses": {
-          "204": {
-            "description": "Success."
+          "200": {
+            "description": "Success.",
+            "schema": {
+              "$ref": "#/definitions/host"
+            }
           },
           "404": {
             "description": "Error.",
@@ -1014,8 +1038,11 @@ func init() {
           }
         ],
         "responses": {
-          "204": {
-            "description": "Success."
+          "200": {
+            "description": "Success.",
+            "schema": {
+              "$ref": "#/definitions/host"
+            }
           },
           "404": {
             "description": "Error.",
@@ -1120,6 +1147,59 @@ func init() {
             "schema": {
               "$ref": "#/definitions/error"
             }
+          },
+          "404": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          },
+          "500": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          }
+        }
+      }
+    },
+    "/clusters/{cluster_id}/hosts/{host_id}/progress": {
+      "put": {
+        "tags": [
+          "installer"
+        ],
+        "summary": "Update installation progress",
+        "operationId": "UpdateHostInstallProgress",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The ID of the cluster to retrieve",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The ID of the host to retrieve",
+            "name": "host_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "New progress value",
+            "name": "host-progress",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/host-progress"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Update install progress"
           },
           "404": {
             "description": "Error.",
@@ -1259,38 +1339,6 @@ func init() {
     }
   },
   "definitions": {
-    "block-device": {
-      "type": "object",
-      "properties": {
-        "device_type": {
-          "type": "string"
-        },
-        "fstype": {
-          "type": "string"
-        },
-        "major_device_number": {
-          "type": "integer"
-        },
-        "minor_device_number": {
-          "type": "integer"
-        },
-        "mountpoint": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "read_only": {
-          "type": "boolean"
-        },
-        "removable_device": {
-          "type": "integer"
-        },
-        "size": {
-          "type": "integer"
-        }
-      }
-    },
     "boot": {
       "type": "object",
       "properties": {
@@ -1299,17 +1347,6 @@ func init() {
         },
         "pxe_interface": {
           "type": "string"
-        }
-      }
-    },
-    "cidr": {
-      "type": "object",
-      "properties": {
-        "ip_address": {
-          "type": "string"
-        },
-        "mask": {
-          "type": "integer"
         }
       }
     },
@@ -1348,7 +1385,7 @@ func init() {
           "description": "The time that this cluster was created.",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "host_networks": {
           "description": "List of host networks to be filled during query.",
@@ -1393,13 +1430,13 @@ func init() {
           "description": "The time that this cluster completed installation.",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime;default:0\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone;default:'2000-01-01 00:00:00z'\""
         },
         "install_started_at": {
           "description": "The time that this cluster began installation.",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime;default:0\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone;default:'2000-01-01 00:00:00z'\""
         },
         "kind": {
           "description": "Indicates the type of this object. Will be 'Cluster' if this is a complete object or 'ClusterLink' if it is just a link.",
@@ -1424,6 +1461,9 @@ func init() {
             "4.5"
           ]
         },
+        "org_id": {
+          "type": "string"
+        },
         "pull_secret_set": {
           "description": "True if the pull-secret has been added to the cluster",
           "type": "boolean"
@@ -1445,7 +1485,9 @@ func init() {
             "insufficient",
             "ready",
             "error",
+            "preparing-for-installation",
             "installing",
+            "finalizing",
             "installed"
           ]
         },
@@ -1458,13 +1500,16 @@ func init() {
           "description": "The last time that the cluster status has been updated",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "updated_at": {
           "description": "The last time that this cluster was updated.",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
+        },
+        "user_id": {
+          "type": "string"
         }
       }
     },
@@ -1557,6 +1602,24 @@ func init() {
           "minimum": 1,
           "x-nullable": true
         },
+        "hosts_names": {
+          "description": "The desired hostname for hosts associated with the cluster.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "hostname": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          "x-go-custom-tag": "gorm:\"type:varchar(64)[]\"",
+          "x-nullable": true
+        },
         "hosts_roles": {
           "description": "The desired role for hosts associated with the cluster.",
           "type": "array",
@@ -1568,11 +1631,7 @@ func init() {
                 "format": "uuid"
               },
               "role": {
-                "type": "string",
-                "enum": [
-                  "master",
-                  "worker"
-                ]
+                "$ref": "#/definitions/host-role-update-params"
               }
             }
           },
@@ -1605,6 +1664,20 @@ func init() {
           "description": "SSH public key for debugging OpenShift nodes.",
           "type": "string",
           "x-nullable": true
+        }
+      }
+    },
+    "completion-params": {
+      "type": "object",
+      "required": [
+        "is_success"
+      ],
+      "properties": {
+        "error_info": {
+          "type": "string"
+        },
+        "is_success": {
+          "type": "boolean"
         }
       }
     },
@@ -1698,29 +1771,6 @@ func init() {
         },
         "model_name": {
           "type": "string"
-        }
-      }
-    },
-    "cpu_details": {
-      "type": "object",
-      "properties": {
-        "architecture": {
-          "type": "string"
-        },
-        "cpu_mhz": {
-          "type": "number"
-        },
-        "cpus": {
-          "type": "integer"
-        },
-        "model_name": {
-          "type": "string"
-        },
-        "sockets": {
-          "type": "integer"
-        },
-        "threads_per_core": {
-          "type": "integer"
         }
       }
     },
@@ -1826,6 +1876,7 @@ func init() {
       "type": "object",
       "required": [
         "entity_id",
+        "severity",
         "message",
         "event_time"
       ],
@@ -1839,7 +1890,7 @@ func init() {
         "event_time": {
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "message": {
           "type": "string",
@@ -1849,6 +1900,15 @@ func init() {
           "description": "Unique identifier for the request that caused this event to occure",
           "type": "string",
           "format": "uuid"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "warning",
+            "error",
+            "critical"
+          ]
         }
       }
     },
@@ -1911,7 +1971,7 @@ func init() {
           "description": "The last time the host's agent communicated with the service.",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "cluster_id": {
           "description": "The cluster that this host is associated with.",
@@ -1926,16 +1986,12 @@ func init() {
         "created_at": {
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "discovery_agent_version": {
           "type": "string"
         },
         "free_addresses": {
-          "type": "string",
-          "x-go-custom-tag": "gorm:\"type:text\""
-        },
-        "hardware_info": {
           "type": "string",
           "x-go-custom-tag": "gorm:\"type:text\""
         },
@@ -1964,13 +2020,34 @@ func init() {
             "Host"
           ]
         },
+        "progress": {
+          "x-go-custom-tag": "gorm:\"embedded;embedded_prefix:progress_\"",
+          "$ref": "#/definitions/host-progress-info"
+        },
+        "progress_stages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/host-stage"
+          },
+          "x-go-custom-tag": "gorm:\"-\""
+        },
+        "requested_hostname": {
+          "type": "string"
+        },
         "role": {
+          "$ref": "#/definitions/host-role"
+        },
+        "stage_started_at": {
+          "description": "Time at which the current progress stage started",
           "type": "string",
-          "enum": [
-            "undefined",
-            "master",
-            "worker"
-          ]
+          "format": "date-time",
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
+        },
+        "stage_updated_at": {
+          "description": "Time at which the current progress stage was last updated",
+          "type": "string",
+          "format": "date-time",
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "status": {
           "type": "string",
@@ -1980,8 +2057,12 @@ func init() {
             "disconnected",
             "insufficient",
             "disabled",
+            "preparing-for-installation",
+            "pending-for-input",
             "installing",
             "installing-in-progress",
+            "installing-pending-user-action",
+            "resetting-pending-user-action",
             "installed",
             "error",
             "resetting"
@@ -1995,12 +2076,17 @@ func init() {
           "description": "The last time that the host status has been updated",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "updated_at": {
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
+        },
+        "validations_info": {
+          "description": "Json formatted string containing the validations results for each validation id grouped by category (network, hardware, etc.)",
+          "type": "string",
+          "x-go-custom-tag": "gorm:\"type:varchar(2048)\""
         }
       }
     },
@@ -2019,14 +2105,103 @@ func init() {
         }
       }
     },
-    "host-install-progress-params": {
-      "type": "string"
-    },
     "host-list": {
       "type": "array",
       "items": {
         "$ref": "#/definitions/host"
       }
+    },
+    "host-progress": {
+      "type": "object",
+      "required": [
+        "current_stage"
+      ],
+      "properties": {
+        "current_stage": {
+          "type": "string",
+          "$ref": "#/definitions/host-stage"
+        },
+        "progress_info": {
+          "type": "string",
+          "x-go-custom-tag": "gorm:\"type:varchar(2048)\""
+        }
+      }
+    },
+    "host-progress-info": {
+      "type": "object",
+      "required": [
+        "current_stage"
+      ],
+      "properties": {
+        "current_stage": {
+          "type": "string",
+          "$ref": "#/definitions/host-stage"
+        },
+        "progress_info": {
+          "type": "string",
+          "x-go-custom-tag": "gorm:\"type:varchar(2048)\""
+        },
+        "stage_started_at": {
+          "description": "Time at which the current progress stage started",
+          "type": "string",
+          "format": "date-time",
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
+        },
+        "stage_updated_at": {
+          "description": "Time at which the current progress stage was last updated",
+          "type": "string",
+          "format": "date-time",
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
+        }
+      }
+    },
+    "host-role": {
+      "type": "string",
+      "enum": [
+        "master",
+        "worker",
+        "bootstrap"
+      ]
+    },
+    "host-role-update-params": {
+      "type": "string",
+      "enum": [
+        "master",
+        "worker"
+      ]
+    },
+    "host-stage": {
+      "type": "string",
+      "enum": [
+        "Starting installation",
+        "Waiting for control plane",
+        "Start Waiting for control plane",
+        "Installing",
+        "Writing image to disk",
+        "Rebooting",
+        "Waiting for ignition",
+        "Configuring",
+        "Joined",
+        "Done",
+        "Failed"
+      ]
+    },
+    "host-validation-id": {
+      "type": "string",
+      "enum": [
+        "connected",
+        "has-inventory",
+        "has-min-cpu-cores",
+        "has-min-valid-disks",
+        "has-min-memory",
+        "machine-cidr-defined",
+        "role-defined",
+        "has-cpu-cores-for-role",
+        "has-memory-for-role",
+        "hostname-unique",
+        "hostname-valid",
+        "belongs-to-machine-cidr"
+      ]
     },
     "host_network": {
       "type": "object",
@@ -2062,7 +2237,7 @@ func init() {
         "created_at": {
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "generator_version": {
           "description": "Image generator version",
@@ -2129,32 +2304,6 @@ func init() {
         },
         "vendor": {
           "type": "string"
-        }
-      }
-    },
-    "introspection": {
-      "type": "object",
-      "properties": {
-        "block_devices": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/block-device"
-          }
-        },
-        "cpu": {
-          "$ref": "#/definitions/cpu_details"
-        },
-        "memory": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/memory_details"
-          }
-        },
-        "nics": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/nic"
-          }
         }
       }
     },
@@ -2238,8 +2387,13 @@ func init() {
     },
     "list-versions": {
       "type": "object",
-      "additionalProperties": {
-        "type": "string"
+      "properties": {
+        "release_tag": {
+          "type": "string"
+        },
+        "versions": {
+          "$ref": "#/definitions/versions"
+        }
       }
     },
     "managed-domain": {
@@ -2264,55 +2418,6 @@ func init() {
         },
         "usable_bytes": {
           "type": "integer"
-        }
-      }
-    },
-    "memory_details": {
-      "type": "object",
-      "properties": {
-        "available": {
-          "type": "integer"
-        },
-        "buff_cached": {
-          "type": "integer"
-        },
-        "free": {
-          "type": "integer"
-        },
-        "name": {
-          "type": "string"
-        },
-        "shared": {
-          "type": "integer"
-        },
-        "total": {
-          "type": "integer"
-        },
-        "used": {
-          "type": "integer"
-        }
-      }
-    },
-    "nic": {
-      "type": "object",
-      "properties": {
-        "cidrs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/cidr"
-          }
-        },
-        "mac": {
-          "type": "string"
-        },
-        "mtu": {
-          "type": "integer"
-        },
-        "name": {
-          "type": "string"
-        },
-        "state": {
-          "type": "string"
         }
       }
     },
@@ -2359,13 +2464,12 @@ func init() {
     "step-type": {
       "type": "string",
       "enum": [
-        "hardware-info",
         "connectivity-check",
         "execute",
         "inventory",
         "install",
         "free-network-addresses",
-        "reset-agent"
+        "reset-installation"
       ]
     },
     "steps": {
@@ -2400,6 +2504,12 @@ func init() {
         "serial_number": {
           "type": "string"
         }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
       }
     }
   },
@@ -2489,47 +2599,6 @@ func init() {
         }
       }
     },
-    "/clusters/{clusterId}/hosts/{hostId}/progress": {
-      "put": {
-        "tags": [
-          "installer"
-        ],
-        "summary": "Update installation progress",
-        "operationId": "UpdateHostInstallProgress",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "The ID of the cluster to retrieve",
-            "name": "clusterId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "The ID of the host to retrieve",
-            "name": "hostId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "description": "New progress value",
-            "name": "host-install-progress-params",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/host-install-progress-params"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Update install progress"
-          }
-        }
-      }
-    },
     "/clusters/{cluster_id}": {
       "get": {
         "tags": [
@@ -2677,6 +2746,58 @@ func init() {
             "name": "cluster_id",
             "in": "path",
             "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Success.",
+            "schema": {
+              "$ref": "#/definitions/cluster"
+            }
+          },
+          "404": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          },
+          "409": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          },
+          "500": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          }
+        }
+      }
+    },
+    "/clusters/{cluster_id}/actions/complete_installation": {
+      "post": {
+        "tags": [
+          "installer"
+        ],
+        "summary": "Agent API to mark a finalizing installation as complete.",
+        "operationId": "CompleteInstallation",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "completion-params",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/completion-params"
+            }
           }
         ],
         "responses": {
@@ -2871,7 +2992,8 @@ func init() {
               "worker.ign",
               "kubeadmin-password",
               "kubeconfig",
-              "kubeconfig-noingress"
+              "kubeconfig-noingress",
+              "install-config.yaml"
             ],
             "type": "string",
             "name": "file_name",
@@ -2997,7 +3119,10 @@ func init() {
             }
           },
           "409": {
-            "description": "Error."
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
           },
           "500": {
             "description": "Error.",
@@ -3187,6 +3312,12 @@ func init() {
               "$ref": "#/definitions/error"
             }
           },
+          "404": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          },
           "500": {
             "description": "Error.",
             "schema": {
@@ -3361,8 +3492,11 @@ func init() {
           }
         ],
         "responses": {
-          "204": {
-            "description": "Success."
+          "200": {
+            "description": "Success.",
+            "schema": {
+              "$ref": "#/definitions/host"
+            }
           },
           "404": {
             "description": "Error.",
@@ -3407,8 +3541,11 @@ func init() {
           }
         ],
         "responses": {
-          "204": {
-            "description": "Success."
+          "200": {
+            "description": "Success.",
+            "schema": {
+              "$ref": "#/definitions/host"
+            }
           },
           "404": {
             "description": "Error.",
@@ -3513,6 +3650,59 @@ func init() {
             "schema": {
               "$ref": "#/definitions/error"
             }
+          },
+          "404": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          },
+          "500": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          }
+        }
+      }
+    },
+    "/clusters/{cluster_id}/hosts/{host_id}/progress": {
+      "put": {
+        "tags": [
+          "installer"
+        ],
+        "summary": "Update installation progress",
+        "operationId": "UpdateHostInstallProgress",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The ID of the cluster to retrieve",
+            "name": "cluster_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The ID of the host to retrieve",
+            "name": "host_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "New progress value",
+            "name": "host-progress",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/host-progress"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Update install progress"
           },
           "404": {
             "description": "Error.",
@@ -3652,6 +3842,18 @@ func init() {
     }
   },
   "definitions": {
+    "ClusterUpdateParamsHostsNamesItems0": {
+      "type": "object",
+      "properties": {
+        "hostname": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
     "ClusterUpdateParamsHostsRolesItems0": {
       "type": "object",
       "properties": {
@@ -3660,43 +3862,7 @@ func init() {
           "format": "uuid"
         },
         "role": {
-          "type": "string",
-          "enum": [
-            "master",
-            "worker"
-          ]
-        }
-      }
-    },
-    "block-device": {
-      "type": "object",
-      "properties": {
-        "device_type": {
-          "type": "string"
-        },
-        "fstype": {
-          "type": "string"
-        },
-        "major_device_number": {
-          "type": "integer"
-        },
-        "minor_device_number": {
-          "type": "integer"
-        },
-        "mountpoint": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "read_only": {
-          "type": "boolean"
-        },
-        "removable_device": {
-          "type": "integer"
-        },
-        "size": {
-          "type": "integer"
+          "$ref": "#/definitions/host-role-update-params"
         }
       }
     },
@@ -3708,17 +3874,6 @@ func init() {
         },
         "pxe_interface": {
           "type": "string"
-        }
-      }
-    },
-    "cidr": {
-      "type": "object",
-      "properties": {
-        "ip_address": {
-          "type": "string"
-        },
-        "mask": {
-          "type": "integer"
         }
       }
     },
@@ -3757,7 +3912,7 @@ func init() {
           "description": "The time that this cluster was created.",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "host_networks": {
           "description": "List of host networks to be filled during query.",
@@ -3802,13 +3957,13 @@ func init() {
           "description": "The time that this cluster completed installation.",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime;default:0\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone;default:'2000-01-01 00:00:00z'\""
         },
         "install_started_at": {
           "description": "The time that this cluster began installation.",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime;default:0\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone;default:'2000-01-01 00:00:00z'\""
         },
         "kind": {
           "description": "Indicates the type of this object. Will be 'Cluster' if this is a complete object or 'ClusterLink' if it is just a link.",
@@ -3833,6 +3988,9 @@ func init() {
             "4.5"
           ]
         },
+        "org_id": {
+          "type": "string"
+        },
         "pull_secret_set": {
           "description": "True if the pull-secret has been added to the cluster",
           "type": "boolean"
@@ -3854,7 +4012,9 @@ func init() {
             "insufficient",
             "ready",
             "error",
+            "preparing-for-installation",
             "installing",
+            "finalizing",
             "installed"
           ]
         },
@@ -3867,13 +4027,16 @@ func init() {
           "description": "The last time that the cluster status has been updated",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "updated_at": {
           "description": "The last time that this cluster was updated.",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
+        },
+        "user_id": {
+          "type": "string"
         }
       }
     },
@@ -3966,6 +4129,15 @@ func init() {
           "minimum": 1,
           "x-nullable": true
         },
+        "hosts_names": {
+          "description": "The desired hostname for hosts associated with the cluster.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ClusterUpdateParamsHostsNamesItems0"
+          },
+          "x-go-custom-tag": "gorm:\"type:varchar(64)[]\"",
+          "x-nullable": true
+        },
         "hosts_roles": {
           "description": "The desired role for hosts associated with the cluster.",
           "type": "array",
@@ -4001,6 +4173,20 @@ func init() {
           "description": "SSH public key for debugging OpenShift nodes.",
           "type": "string",
           "x-nullable": true
+        }
+      }
+    },
+    "completion-params": {
+      "type": "object",
+      "required": [
+        "is_success"
+      ],
+      "properties": {
+        "error_info": {
+          "type": "string"
+        },
+        "is_success": {
+          "type": "boolean"
         }
       }
     },
@@ -4094,29 +4280,6 @@ func init() {
         },
         "model_name": {
           "type": "string"
-        }
-      }
-    },
-    "cpu_details": {
-      "type": "object",
-      "properties": {
-        "architecture": {
-          "type": "string"
-        },
-        "cpu_mhz": {
-          "type": "number"
-        },
-        "cpus": {
-          "type": "integer"
-        },
-        "model_name": {
-          "type": "string"
-        },
-        "sockets": {
-          "type": "integer"
-        },
-        "threads_per_core": {
-          "type": "integer"
         }
       }
     },
@@ -4222,6 +4385,7 @@ func init() {
       "type": "object",
       "required": [
         "entity_id",
+        "severity",
         "message",
         "event_time"
       ],
@@ -4235,7 +4399,7 @@ func init() {
         "event_time": {
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "message": {
           "type": "string",
@@ -4245,6 +4409,15 @@ func init() {
           "description": "Unique identifier for the request that caused this event to occure",
           "type": "string",
           "format": "uuid"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "warning",
+            "error",
+            "critical"
+          ]
         }
       }
     },
@@ -4307,7 +4480,7 @@ func init() {
           "description": "The last time the host's agent communicated with the service.",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "cluster_id": {
           "description": "The cluster that this host is associated with.",
@@ -4322,16 +4495,12 @@ func init() {
         "created_at": {
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "discovery_agent_version": {
           "type": "string"
         },
         "free_addresses": {
-          "type": "string",
-          "x-go-custom-tag": "gorm:\"type:text\""
-        },
-        "hardware_info": {
           "type": "string",
           "x-go-custom-tag": "gorm:\"type:text\""
         },
@@ -4360,13 +4529,34 @@ func init() {
             "Host"
           ]
         },
+        "progress": {
+          "x-go-custom-tag": "gorm:\"embedded;embedded_prefix:progress_\"",
+          "$ref": "#/definitions/host-progress-info"
+        },
+        "progress_stages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/host-stage"
+          },
+          "x-go-custom-tag": "gorm:\"-\""
+        },
+        "requested_hostname": {
+          "type": "string"
+        },
         "role": {
+          "$ref": "#/definitions/host-role"
+        },
+        "stage_started_at": {
+          "description": "Time at which the current progress stage started",
           "type": "string",
-          "enum": [
-            "undefined",
-            "master",
-            "worker"
-          ]
+          "format": "date-time",
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
+        },
+        "stage_updated_at": {
+          "description": "Time at which the current progress stage was last updated",
+          "type": "string",
+          "format": "date-time",
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "status": {
           "type": "string",
@@ -4376,8 +4566,12 @@ func init() {
             "disconnected",
             "insufficient",
             "disabled",
+            "preparing-for-installation",
+            "pending-for-input",
             "installing",
             "installing-in-progress",
+            "installing-pending-user-action",
+            "resetting-pending-user-action",
             "installed",
             "error",
             "resetting"
@@ -4391,12 +4585,17 @@ func init() {
           "description": "The last time that the host status has been updated",
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "updated_at": {
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
+        },
+        "validations_info": {
+          "description": "Json formatted string containing the validations results for each validation id grouped by category (network, hardware, etc.)",
+          "type": "string",
+          "x-go-custom-tag": "gorm:\"type:varchar(2048)\""
         }
       }
     },
@@ -4415,14 +4614,103 @@ func init() {
         }
       }
     },
-    "host-install-progress-params": {
-      "type": "string"
-    },
     "host-list": {
       "type": "array",
       "items": {
         "$ref": "#/definitions/host"
       }
+    },
+    "host-progress": {
+      "type": "object",
+      "required": [
+        "current_stage"
+      ],
+      "properties": {
+        "current_stage": {
+          "type": "string",
+          "$ref": "#/definitions/host-stage"
+        },
+        "progress_info": {
+          "type": "string",
+          "x-go-custom-tag": "gorm:\"type:varchar(2048)\""
+        }
+      }
+    },
+    "host-progress-info": {
+      "type": "object",
+      "required": [
+        "current_stage"
+      ],
+      "properties": {
+        "current_stage": {
+          "type": "string",
+          "$ref": "#/definitions/host-stage"
+        },
+        "progress_info": {
+          "type": "string",
+          "x-go-custom-tag": "gorm:\"type:varchar(2048)\""
+        },
+        "stage_started_at": {
+          "description": "Time at which the current progress stage started",
+          "type": "string",
+          "format": "date-time",
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
+        },
+        "stage_updated_at": {
+          "description": "Time at which the current progress stage was last updated",
+          "type": "string",
+          "format": "date-time",
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
+        }
+      }
+    },
+    "host-role": {
+      "type": "string",
+      "enum": [
+        "master",
+        "worker",
+        "bootstrap"
+      ]
+    },
+    "host-role-update-params": {
+      "type": "string",
+      "enum": [
+        "master",
+        "worker"
+      ]
+    },
+    "host-stage": {
+      "type": "string",
+      "enum": [
+        "Starting installation",
+        "Waiting for control plane",
+        "Start Waiting for control plane",
+        "Installing",
+        "Writing image to disk",
+        "Rebooting",
+        "Waiting for ignition",
+        "Configuring",
+        "Joined",
+        "Done",
+        "Failed"
+      ]
+    },
+    "host-validation-id": {
+      "type": "string",
+      "enum": [
+        "connected",
+        "has-inventory",
+        "has-min-cpu-cores",
+        "has-min-valid-disks",
+        "has-min-memory",
+        "machine-cidr-defined",
+        "role-defined",
+        "has-cpu-cores-for-role",
+        "has-memory-for-role",
+        "hostname-unique",
+        "hostname-valid",
+        "belongs-to-machine-cidr"
+      ]
     },
     "host_network": {
       "type": "object",
@@ -4458,7 +4746,7 @@ func init() {
         "created_at": {
           "type": "string",
           "format": "date-time",
-          "x-go-custom-tag": "gorm:\"type:datetime\""
+          "x-go-custom-tag": "gorm:\"type:timestamp with time zone\""
         },
         "generator_version": {
           "description": "Image generator version",
@@ -4525,32 +4813,6 @@ func init() {
         },
         "vendor": {
           "type": "string"
-        }
-      }
-    },
-    "introspection": {
-      "type": "object",
-      "properties": {
-        "block_devices": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/block-device"
-          }
-        },
-        "cpu": {
-          "$ref": "#/definitions/cpu_details"
-        },
-        "memory": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/memory_details"
-          }
-        },
-        "nics": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/nic"
-          }
         }
       }
     },
@@ -4634,8 +4896,13 @@ func init() {
     },
     "list-versions": {
       "type": "object",
-      "additionalProperties": {
-        "type": "string"
+      "properties": {
+        "release_tag": {
+          "type": "string"
+        },
+        "versions": {
+          "$ref": "#/definitions/versions"
+        }
       }
     },
     "managed-domain": {
@@ -4660,55 +4927,6 @@ func init() {
         },
         "usable_bytes": {
           "type": "integer"
-        }
-      }
-    },
-    "memory_details": {
-      "type": "object",
-      "properties": {
-        "available": {
-          "type": "integer"
-        },
-        "buff_cached": {
-          "type": "integer"
-        },
-        "free": {
-          "type": "integer"
-        },
-        "name": {
-          "type": "string"
-        },
-        "shared": {
-          "type": "integer"
-        },
-        "total": {
-          "type": "integer"
-        },
-        "used": {
-          "type": "integer"
-        }
-      }
-    },
-    "nic": {
-      "type": "object",
-      "properties": {
-        "cidrs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/cidr"
-          }
-        },
-        "mac": {
-          "type": "string"
-        },
-        "mtu": {
-          "type": "integer"
-        },
-        "name": {
-          "type": "string"
-        },
-        "state": {
-          "type": "string"
         }
       }
     },
@@ -4755,13 +4973,12 @@ func init() {
     "step-type": {
       "type": "string",
       "enum": [
-        "hardware-info",
         "connectivity-check",
         "execute",
         "inventory",
         "install",
         "free-network-addresses",
-        "reset-agent"
+        "reset-installation"
       ]
     },
     "steps": {
@@ -4796,6 +5013,12 @@ func init() {
         "serial_number": {
           "type": "string"
         }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
       }
     }
   },

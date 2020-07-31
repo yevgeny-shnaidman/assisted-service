@@ -7,6 +7,7 @@ package models
 
 import (
 	"encoding/json"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -24,7 +25,7 @@ type Host struct {
 
 	// The last time the host's agent communicated with the service.
 	// Format: date-time
-	CheckedInAt strfmt.DateTime `json:"checked_in_at,omitempty" gorm:"type:datetime"`
+	CheckedInAt strfmt.DateTime `json:"checked_in_at,omitempty" gorm:"type:timestamp with time zone"`
 
 	// The cluster that this host is associated with.
 	// Format: uuid
@@ -35,16 +36,13 @@ type Host struct {
 
 	// created at
 	// Format: date-time
-	CreatedAt strfmt.DateTime `json:"created_at,omitempty" gorm:"type:datetime"`
+	CreatedAt strfmt.DateTime `json:"created_at,omitempty" gorm:"type:timestamp with time zone"`
 
 	// discovery agent version
 	DiscoveryAgentVersion string `json:"discovery_agent_version,omitempty"`
 
 	// free addresses
 	FreeAddresses string `json:"free_addresses,omitempty" gorm:"type:text"`
-
-	// hardware info
-	HardwareInfo string `json:"hardware_info,omitempty" gorm:"type:text"`
 
 	// Self link.
 	// Required: true
@@ -66,13 +64,29 @@ type Host struct {
 	// Enum: [Host]
 	Kind *string `json:"kind"`
 
+	// progress
+	Progress *HostProgressInfo `json:"progress,omitempty" gorm:"embedded;embedded_prefix:progress_"`
+
+	// progress stages
+	ProgressStages []HostStage `json:"progress_stages" gorm:"-"`
+
+	// requested hostname
+	RequestedHostname string `json:"requested_hostname,omitempty"`
+
 	// role
-	// Enum: [undefined master worker]
-	Role string `json:"role,omitempty"`
+	Role HostRole `json:"role,omitempty"`
+
+	// Time at which the current progress stage started
+	// Format: date-time
+	StageStartedAt strfmt.DateTime `json:"stage_started_at,omitempty" gorm:"type:timestamp with time zone"`
+
+	// Time at which the current progress stage was last updated
+	// Format: date-time
+	StageUpdatedAt strfmt.DateTime `json:"stage_updated_at,omitempty" gorm:"type:timestamp with time zone"`
 
 	// status
 	// Required: true
-	// Enum: [discovering known disconnected insufficient disabled installing installing-in-progress installed error resetting]
+	// Enum: [discovering known disconnected insufficient disabled preparing-for-installation pending-for-input installing installing-in-progress installing-pending-user-action resetting-pending-user-action installed error resetting]
 	Status *string `json:"status"`
 
 	// status info
@@ -81,11 +95,14 @@ type Host struct {
 
 	// The last time that the host status has been updated
 	// Format: date-time
-	StatusUpdatedAt strfmt.DateTime `json:"status_updated_at,omitempty" gorm:"type:datetime"`
+	StatusUpdatedAt strfmt.DateTime `json:"status_updated_at,omitempty" gorm:"type:timestamp with time zone"`
 
 	// updated at
 	// Format: date-time
-	UpdatedAt strfmt.DateTime `json:"updated_at,omitempty" gorm:"type:datetime"`
+	UpdatedAt strfmt.DateTime `json:"updated_at,omitempty" gorm:"type:timestamp with time zone"`
+
+	// Json formatted string containing the validations results for each validation id grouped by category (network, hardware, etc.)
+	ValidationsInfo string `json:"validations_info,omitempty" gorm:"type:varchar(2048)"`
 }
 
 // Validate validates this host
@@ -116,7 +133,23 @@ func (m *Host) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateProgress(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateProgressStages(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateRole(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStageStartedAt(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateStageUpdatedAt(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -243,35 +276,41 @@ func (m *Host) validateKind(formats strfmt.Registry) error {
 	return nil
 }
 
-var hostTypeRolePropEnum []interface{}
+func (m *Host) validateProgress(formats strfmt.Registry) error {
 
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["undefined","master","worker"]`), &res); err != nil {
-		panic(err)
+	if swag.IsZero(m.Progress) { // not required
+		return nil
 	}
-	for _, v := range res {
-		hostTypeRolePropEnum = append(hostTypeRolePropEnum, v)
+
+	if m.Progress != nil {
+		if err := m.Progress.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("progress")
+			}
+			return err
+		}
 	}
+
+	return nil
 }
 
-const (
+func (m *Host) validateProgressStages(formats strfmt.Registry) error {
 
-	// HostRoleUndefined captures enum value "undefined"
-	HostRoleUndefined string = "undefined"
-
-	// HostRoleMaster captures enum value "master"
-	HostRoleMaster string = "master"
-
-	// HostRoleWorker captures enum value "worker"
-	HostRoleWorker string = "worker"
-)
-
-// prop value enum
-func (m *Host) validateRoleEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, hostTypeRolePropEnum, true); err != nil {
-		return err
+	if swag.IsZero(m.ProgressStages) { // not required
+		return nil
 	}
+
+	for i := 0; i < len(m.ProgressStages); i++ {
+
+		if err := m.ProgressStages[i].Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("progress_stages" + "." + strconv.Itoa(i))
+			}
+			return err
+		}
+
+	}
+
 	return nil
 }
 
@@ -281,8 +320,36 @@ func (m *Host) validateRole(formats strfmt.Registry) error {
 		return nil
 	}
 
-	// value enum
-	if err := m.validateRoleEnum("role", "body", m.Role); err != nil {
+	if err := m.Role.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("role")
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (m *Host) validateStageStartedAt(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.StageStartedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("stage_started_at", "body", "date-time", m.StageStartedAt.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Host) validateStageUpdatedAt(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.StageUpdatedAt) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("stage_updated_at", "body", "date-time", m.StageUpdatedAt.String(), formats); err != nil {
 		return err
 	}
 
@@ -293,7 +360,7 @@ var hostTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["discovering","known","disconnected","insufficient","disabled","installing","installing-in-progress","installed","error","resetting"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["discovering","known","disconnected","insufficient","disabled","preparing-for-installation","pending-for-input","installing","installing-in-progress","installing-pending-user-action","resetting-pending-user-action","installed","error","resetting"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -318,11 +385,23 @@ const (
 	// HostStatusDisabled captures enum value "disabled"
 	HostStatusDisabled string = "disabled"
 
+	// HostStatusPreparingForInstallation captures enum value "preparing-for-installation"
+	HostStatusPreparingForInstallation string = "preparing-for-installation"
+
+	// HostStatusPendingForInput captures enum value "pending-for-input"
+	HostStatusPendingForInput string = "pending-for-input"
+
 	// HostStatusInstalling captures enum value "installing"
 	HostStatusInstalling string = "installing"
 
 	// HostStatusInstallingInProgress captures enum value "installing-in-progress"
 	HostStatusInstallingInProgress string = "installing-in-progress"
+
+	// HostStatusInstallingPendingUserAction captures enum value "installing-pending-user-action"
+	HostStatusInstallingPendingUserAction string = "installing-pending-user-action"
+
+	// HostStatusResettingPendingUserAction captures enum value "resetting-pending-user-action"
+	HostStatusResettingPendingUserAction string = "resetting-pending-user-action"
 
 	// HostStatusInstalled captures enum value "installed"
 	HostStatusInstalled string = "installed"

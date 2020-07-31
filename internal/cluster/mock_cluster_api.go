@@ -6,11 +6,12 @@ package cluster
 
 import (
 	context "context"
+	reflect "reflect"
+
 	common "github.com/filanov/bm-inventory/internal/common"
 	strfmt "github.com/go-openapi/strfmt"
 	gomock "github.com/golang/mock/gomock"
 	gorm "github.com/jinzhu/gorm"
-	reflect "reflect"
 )
 
 // MockStateAPI is a mock of StateAPI interface
@@ -37,10 +38,10 @@ func (m *MockStateAPI) EXPECT() *MockStateAPIMockRecorder {
 }
 
 // RefreshStatus mocks base method
-func (m *MockStateAPI) RefreshStatus(ctx context.Context, c *common.Cluster, db *gorm.DB) (*UpdateReply, error) {
+func (m *MockStateAPI) RefreshStatus(ctx context.Context, c *common.Cluster, db *gorm.DB) (*common.Cluster, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RefreshStatus", ctx, c, db)
-	ret0, _ := ret[0].(*UpdateReply)
+	ret0, _ := ret[0].(*common.Cluster)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -178,10 +179,10 @@ func (m *MockAPI) EXPECT() *MockAPIMockRecorder {
 }
 
 // RefreshStatus mocks base method
-func (m *MockAPI) RefreshStatus(ctx context.Context, c *common.Cluster, db *gorm.DB) (*UpdateReply, error) {
+func (m *MockAPI) RefreshStatus(ctx context.Context, c *common.Cluster, db *gorm.DB) (*common.Cluster, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RefreshStatus", ctx, c, db)
-	ret0, _ := ret[0].(*UpdateReply)
+	ret0, _ := ret[0].(*common.Cluster)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -385,4 +386,44 @@ func (m *MockAPI) ResetCluster(ctx context.Context, c *common.Cluster, reason st
 func (mr *MockAPIMockRecorder) ResetCluster(ctx, c, reason, db interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetCluster", reflect.TypeOf((*MockAPI)(nil).ResetCluster), ctx, c, reason, db)
+}
+
+// PrepareForInstallation mocks base method
+func (m *MockAPI) PrepareForInstallation(ctx context.Context, c *common.Cluster, db *gorm.DB) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PrepareForInstallation", ctx, c, db)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PrepareForInstallation indicates an expected call of PrepareForInstallation
+func (mr *MockAPIMockRecorder) PrepareForInstallation(ctx, c, db interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrepareForInstallation", reflect.TypeOf((*MockAPI)(nil).PrepareForInstallation), ctx, c, db)
+}
+
+// HandlePreInstallError mocks base method
+func (m *MockAPI) HandlePreInstallError(ctx context.Context, c *common.Cluster, err error) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "HandlePreInstallError", ctx, c, err)
+}
+
+// HandlePreInstallError indicates an expected call of HandlePreInstallError
+func (mr *MockAPIMockRecorder) HandlePreInstallError(ctx, c, err interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandlePreInstallError", reflect.TypeOf((*MockAPI)(nil).HandlePreInstallError), ctx, c, err)
+}
+
+// CompleteInstallation mocks base method
+func (m *MockAPI) CompleteInstallation(ctx context.Context, c *common.Cluster, successfullyFinished bool, reason string) *common.ApiErrorResponse {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CompleteInstallation", ctx, c, successfullyFinished, reason)
+	ret0, _ := ret[0].(*common.ApiErrorResponse)
+	return ret0
+}
+
+// CompleteInstallation indicates an expected call of CompleteInstallation
+func (mr *MockAPIMockRecorder) CompleteInstallation(ctx, c, successfullyFinished, reason interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteInstallation", reflect.TypeOf((*MockAPI)(nil).CompleteInstallation), ctx, c, successfullyFinished, reason)
 }

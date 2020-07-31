@@ -6,19 +6,21 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/filanov/stateswitch"
-
-	"github.com/pkg/errors"
+	"github.com/filanov/bm-inventory/internal/metrics"
 
 	"github.com/filanov/bm-inventory/internal/common"
-	"github.com/thoas/go-funk"
-
 	"github.com/filanov/bm-inventory/internal/events"
-
+	"github.com/filanov/bm-inventory/internal/host"
+	"github.com/filanov/bm-inventory/models"
+	logutil "github.com/filanov/bm-inventory/pkg/log"
+	"github.com/filanov/bm-inventory/pkg/requestid"
+	"github.com/filanov/stateswitch"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/jinzhu/gorm"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/thoas/go-funk"
 )
 
 const minHostsNeededForInstallation = 3
@@ -26,8 +28,8 @@ const minHostsNeededForInstallation = 3
 //go:generate mockgen -source=cluster.go -package=cluster -destination=mock_cluster_api.go
 
 type StateAPI interface {
-	// Refresh state in case of hosts update7
-	RefreshStatus(ctx context.Context, c *common.Cluster, db *gorm.DB) (*UpdateReply, error)
+	// Refresh state in case of hosts update
+	RefreshStatus(ctx context.Context, c *common.Cluster, db *gorm.DB) (*common.Cluster, error)
 }
 
 type RegistrationAPI interface {
@@ -58,23 +60,34 @@ type API interface {
 	SetGeneratorVersion(c *common.Cluster, version string, db *gorm.DB) error
 	CancelInstallation(ctx context.Context, c *common.Cluster, reason string, db *gorm.DB) *common.ApiErrorResponse
 	ResetCluster(ctx context.Context, c *common.Cluster, reason string, db *gorm.DB) *common.ApiErrorResponse
+	PrepareForInstallation(ctx context.Context, c *common.Cluster, db *gorm.DB) error
+	HandlePreInstallError(ctx context.Context, c *common.Cluster, err error)
+	CompleteInstallation(ctx context.Context, c *common.Cluster, successfullyFinished bool, reason string) *common.ApiErrorResponse
+}
+
+type Config struct {
+	PrepareConfig PrepareConfig
 }
 
 type Manager struct {
+	Config
 	log             logrus.FieldLogger
 	db              *gorm.DB
 	insufficient    StateAPI
 	ready           StateAPI
 	installing      StateAPI
+	finalizing      StateAPI
 	installed       StateAPI
 	error           StateAPI
+	prepare         StateAPI
 	registrationAPI RegistrationAPI
 	installationAPI InstallationAPI
 	eventsHandler   events.Handler
 	sm              stateswitch.StateMachine
+	metricAPI       metrics.API
 }
 
-func NewManager(log logrus.FieldLogger, db *gorm.DB, eventsHandler events.Handler) *Manager {
+func NewManager(cfg Config, log logrus.FieldLogger, db *gorm.DB, eventsHandler events.Handler, hostAPI host.API, metricApi metrics.API) *Manager {
 	th := &transitionHandler{
 		log: log,
 		db:  db,
@@ -82,65 +95,88 @@ func NewManager(log logrus.FieldLogger, db *gorm.DB, eventsHandler events.Handle
 	return &Manager{
 		log:             log,
 		db:              db,
-		insufficient:    NewInsufficientState(log, db),
+		insufficient:    NewInsufficientState(log, db, hostAPI),
 		ready:           NewReadyState(log, db),
 		installing:      NewInstallingState(log, db),
+		finalizing:      NewFinalizingState(log, db),
 		installed:       NewInstalledState(log, db),
 		error:           NewErrorState(log, db),
+		prepare:         NewPrepareForInstallation(cfg.PrepareConfig, log, db),
 		registrationAPI: NewRegistrar(log, db),
 		installationAPI: NewInstaller(log, db),
 		eventsHandler:   eventsHandler,
 		sm:              NewClusterStateMachine(th),
+		metricAPI:       metricApi,
 	}
 }
 
 func (m *Manager) getCurrentState(status string) (StateAPI, error) {
 	switch status {
 	case "":
-	case clusterStatusInsufficient:
+	case models.ClusterStatusInsufficient:
 		return m.insufficient, nil
-	case clusterStatusReady:
+	case models.ClusterStatusReady:
 		return m.ready, nil
-	case clusterStatusInstalling:
+	case models.ClusterStatusInstalling:
 		return m.installing, nil
-	case clusterStatusInstalled:
+	case models.ClusterStatusFinalizing:
+		return m.finalizing, nil
+	case models.ClusterStatusInstalled:
 		return m.installed, nil
-	case clusterStatusError:
+	case models.ClusterStatusError:
 		return m.error, nil
+	case models.ClusterStatusPreparingForInstallation:
+		return m.prepare, nil
 	}
-	return nil, fmt.Errorf("not supported cluster status: %s", status)
+	return nil, errors.Errorf("not supported cluster status: %s", status)
 }
 
 func (m *Manager) RegisterCluster(ctx context.Context, c *common.Cluster) error {
 	err := m.registrationAPI.RegisterCluster(ctx, c)
-	var msg string
 	if err != nil {
-		msg = fmt.Sprintf("Failed to register cluster. Error: %s", err.Error())
+		m.eventsHandler.AddEvent(ctx, c.ID.String(), models.EventSeverityError,
+			fmt.Sprintf("Failed to register cluster with name \"%s\". Error: %s", c.Name, err.Error()), time.Now())
 	} else {
-		msg = "Registered cluster"
+		m.eventsHandler.AddEvent(ctx, c.ID.String(), models.EventSeverityInfo,
+			fmt.Sprintf("Registered cluster \"%s\"", c.Name), time.Now())
 	}
-	m.eventsHandler.AddEvent(ctx, c.ID.String(), msg, time.Now())
 	return err
 }
 
 func (m *Manager) DeregisterCluster(ctx context.Context, c *common.Cluster) error {
 	err := m.registrationAPI.DeregisterCluster(ctx, c)
-	var msg string
 	if err != nil {
-		msg = fmt.Sprintf("Failed to deregister cluster. Error: %s", err.Error())
+		m.eventsHandler.AddEvent(ctx, c.ID.String(), models.EventSeverityError,
+			fmt.Sprintf("Failed to deregister cluster. Error: %s", err.Error()), time.Now())
 	} else {
-		msg = "Deregistered cluster"
+		m.eventsHandler.AddEvent(ctx, c.ID.String(), models.EventSeverityError, "Deregistered cluster", time.Now())
 	}
-	m.eventsHandler.AddEvent(ctx, c.ID.String(), msg, time.Now())
 	return err
 }
 
-func (m *Manager) RefreshStatus(ctx context.Context, c *common.Cluster, db *gorm.DB) (*UpdateReply, error) {
-	state, err := m.getCurrentState(swag.StringValue(c.Status))
+func (m *Manager) RefreshStatus(ctx context.Context, c *common.Cluster, db *gorm.DB) (*common.Cluster, error) {
+	log := logutil.FromContext(ctx, m.log)
+
+	stateBeforeRefresh := swag.StringValue(c.Status)
+	// get updated cluster info with hosts
+	var cluster common.Cluster
+
+	if err := db.Preload("Hosts").Take(&cluster, "id = ?", c.ID.String()).Error; err != nil {
+		return nil, errors.Wrapf(err, "failed to get cluster %s", c.ID.String())
+	}
+	state, err := m.getCurrentState(swag.StringValue(cluster.Status))
 	if err != nil {
 		return nil, err
 	}
-	return state.RefreshStatus(ctx, c, db)
+
+	clusterAfterRefresh, err := state.RefreshStatus(ctx, &cluster, db)
+	//report installation finished metric if needed
+	reportInstallationCompleteStatuses := []string{models.ClusterStatusInstalled, models.ClusterStatusError}
+	if err == nil && stateBeforeRefresh != "" && stateBeforeRefresh == models.ClusterStatusInstalling &&
+		funk.ContainsString(reportInstallationCompleteStatuses, swag.StringValue(clusterAfterRefresh.Status)) {
+		m.metricAPI.ClusterInstallationFinished(log, swag.StringValue(cluster.Status), c.OpenshiftVersion, c.InstallStartedAt)
+	}
+	return clusterAfterRefresh, err
 }
 
 func (m *Manager) Install(ctx context.Context, c *common.Cluster, db *gorm.DB) error {
@@ -152,26 +188,28 @@ func (m *Manager) GetMasterNodesIds(ctx context.Context, c *common.Cluster, db *
 }
 
 func (m *Manager) ClusterMonitoring() {
-	var clusters []*common.Cluster
+	var (
+		clusters            []*common.Cluster
+		clusterAfterRefresh *common.Cluster
+		requestID           = requestid.NewID()
+		ctx                 = requestid.ToContext(context.Background(), requestID)
+		log                 = requestid.RequestIDLogger(m.log, requestID)
+		err                 error
+	)
 
-	if err := m.db.Find(&clusters).Error; err != nil {
-		m.log.WithError(err).Errorf("failed to get clusters")
+	if err = m.db.Find(&clusters).Error; err != nil {
+		log.WithError(err).Errorf("failed to get clusters")
 		return
 	}
 	for _, cluster := range clusters {
-		state, err := m.getCurrentState(swag.StringValue(cluster.Status))
+		if clusterAfterRefresh, err = m.RefreshStatus(ctx, cluster, m.db); err != nil {
+			log.WithError(err).Errorf("failed to refresh cluster %s state", cluster.ID)
+			continue
+		}
 
-		if err != nil {
-			m.log.WithError(err).Errorf("failed to get cluster %s currentState", cluster.ID)
-			continue
-		}
-		stateReply, err := state.RefreshStatus(context.Background(), cluster, m.db)
-		if err != nil {
-			m.log.WithError(err).Errorf("failed to refresh cluster %s state", cluster.ID)
-			continue
-		}
-		if stateReply.IsChanged {
-			m.log.Infof("cluster %s updated to state %s via monitor", cluster.ID, stateReply.State)
+		if swag.StringValue(clusterAfterRefresh.Status) != swag.StringValue(cluster.Status) {
+			log.Infof("cluster %s updated status from %s to %s via monitor", cluster.ID,
+				swag.StringValue(cluster.Status), swag.StringValue(clusterAfterRefresh.Status))
 		}
 	}
 }
@@ -179,6 +217,7 @@ func (m *Manager) ClusterMonitoring() {
 func (m *Manager) DownloadFiles(c *common.Cluster) (err error) {
 	clusterStatus := swag.StringValue(c.Status)
 	allowedStatuses := []string{clusterStatusInstalling,
+		models.ClusterStatusFinalizing,
 		clusterStatusInstalled,
 		clusterStatusError}
 	if !funk.ContainsString(allowedStatuses, clusterStatus) {
@@ -198,7 +237,7 @@ func (m *Manager) DownloadKubeconfig(c *common.Cluster) (err error) {
 }
 func (m *Manager) GetCredentials(c *common.Cluster) (err error) {
 	clusterStatus := swag.StringValue(c.Status)
-	allowedStatuses := []string{clusterStatusInstalling, clusterStatusInstalled}
+	allowedStatuses := []string{clusterStatusInstalling, models.ClusterStatusFinalizing, clusterStatusInstalled}
 	if !funk.ContainsString(allowedStatuses, clusterStatus) {
 		err = errors.Errorf("Cluster %s is in %s state, credentials are available only in installing or installed state", c.ID, clusterStatus)
 	}
@@ -208,10 +247,10 @@ func (m *Manager) GetCredentials(c *common.Cluster) (err error) {
 
 func (m *Manager) UploadIngressCert(c *common.Cluster) (err error) {
 	clusterStatus := swag.StringValue(c.Status)
-	if clusterStatus != clusterStatusInstalled {
-		err = errors.Errorf("Cluster %s is in %s state, upload ingress ca can be done only in installed state", c.ID, clusterStatus)
+	allowedStatuses := []string{models.ClusterStatusFinalizing, clusterStatusInstalled}
+	if !funk.ContainsString(allowedStatuses, clusterStatus) {
+		err = errors.Errorf("Cluster %s is in %s state, upload ingress ca can be done only in %s or %s state", c.ID, clusterStatus, models.ClusterStatusFinalizing, clusterStatusInstalled)
 	}
-
 	return err
 }
 
@@ -239,25 +278,87 @@ func (m *Manager) SetGeneratorVersion(c *common.Cluster, version string, db *gor
 }
 
 func (m *Manager) CancelInstallation(ctx context.Context, c *common.Cluster, reason string, db *gorm.DB) *common.ApiErrorResponse {
+	log := logutil.FromContext(ctx, m.log)
+
+	eventSeverity := models.EventSeverityInfo
+	eventInfo := "Canceled cluster installation"
+	defer func() {
+		m.eventsHandler.AddEvent(ctx, c.ID.String(), eventSeverity, eventInfo, time.Now())
+	}()
+
 	err := m.sm.Run(TransitionTypeCancelInstallation, newStateCluster(c), &TransitionArgsCancelInstallation{
 		ctx:    ctx,
 		reason: reason,
 		db:     db,
 	})
 	if err != nil {
+		eventSeverity = models.EventSeverityError
+		eventInfo = fmt.Sprintf("Failed to cancel installation: %s", err.Error())
 		return common.NewApiError(http.StatusConflict, err)
 	}
+	//report installation finished metric
+	m.metricAPI.ClusterInstallationFinished(log, "canceled", c.OpenshiftVersion, c.InstallStartedAt)
 	return nil
 }
 
 func (m *Manager) ResetCluster(ctx context.Context, c *common.Cluster, reason string, db *gorm.DB) *common.ApiErrorResponse {
+	eventSeverity := models.EventSeverityInfo
+	eventInfo := "Reset cluster installation"
+	defer func() {
+		m.eventsHandler.AddEvent(ctx, c.ID.String(), eventSeverity, eventInfo, time.Now())
+	}()
+
 	err := m.sm.Run(TransitionTypeResetCluster, newStateCluster(c), &TransitionArgsResetCluster{
 		ctx:    ctx,
 		reason: reason,
 		db:     db,
 	})
 	if err != nil {
+		eventSeverity = models.EventSeverityError
+		eventInfo = fmt.Sprintf("Failed to reset installation. Error: %s", err.Error())
 		return common.NewApiError(http.StatusConflict, err)
 	}
 	return nil
+}
+
+func (m *Manager) CompleteInstallation(ctx context.Context, c *common.Cluster, successfullyFinished bool, reason string) *common.ApiErrorResponse {
+	log := logutil.FromContext(ctx, m.log)
+
+	err := m.sm.Run(TransitionTypeCompleteInstallation, newStateCluster(c), &TransitionArgsCompleteInstallation{
+		ctx:       ctx,
+		isSuccess: successfullyFinished,
+		reason:    reason,
+	})
+	if err != nil {
+		return common.NewApiError(http.StatusConflict, err)
+	}
+	result := models.ClusterStatusInstalled
+	if !successfullyFinished {
+		result = models.ClusterStatusError
+	}
+	m.metricAPI.ClusterInstallationFinished(log, result, c.OpenshiftVersion, c.InstallStartedAt)
+	return nil
+}
+
+func (m *Manager) PrepareForInstallation(ctx context.Context, c *common.Cluster, db *gorm.DB) error {
+	err := m.sm.Run(TransitionTypePrepareForInstallation, newStateCluster(c),
+		&TransitionArgsPrepareForInstallation{
+			ctx: ctx,
+			db:  db,
+		},
+	)
+	return err
+}
+
+func (m *Manager) HandlePreInstallError(ctx context.Context, c *common.Cluster, installErr error) {
+	log := logutil.FromContext(ctx, m.log)
+	err := m.sm.Run(TransitionTypeHandlePreInstallationError, newStateCluster(c), &TransitionArgsHandlePreInstallationError{
+		ctx:        ctx,
+		installErr: installErr,
+	})
+	if err != nil {
+		log.WithError(err).Errorf("Failed to handle pre installation error for cluster %s", c.ID.String())
+	} else {
+		log.Infof("Successfully handled pre-installation error, cluster %s", c.ID.String())
+	}
 }

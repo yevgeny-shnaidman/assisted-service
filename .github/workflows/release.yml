@@ -1,4 +1,4 @@
-name: image-push
+name: release
 
 on:
   push:
@@ -25,6 +25,9 @@ jobs:
     - name: build
       run: |
         skipper make build
+    - name: create python client
+      run: |
+        skipper make create-python-client
     - name: Get release version
       id: get_version
       run: echo ::set-env name=GIT_REVISION::$(echo ${GITHUB_SHA})
@@ -39,15 +42,5 @@ jobs:
         password: ${{ secrets.DOCKER_PASSWORD }}
         REGISTRY: 'quay.io/ocpmetal'
         dockerfile: "Dockerfile.bm-inventory"
-        buildargs: GIT_REVISION
-        tags: "${{ env.GIT_TAG }},${{ env.GIT_REVISION }}"
-    - name: Publish expirer to Registry
-      uses: elgohr/Publish-Docker-Github-Action@2.15
-      with:
-        name: s3-object-expirer
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-        REGISTRY: 'quay.io/ocpmetal'
-        dockerfile: "Dockerfile.s3-object-expirer"
         buildargs: GIT_REVISION
         tags: "${{ env.GIT_TAG }},${{ env.GIT_REVISION }}"

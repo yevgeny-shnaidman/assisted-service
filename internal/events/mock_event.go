@@ -6,9 +6,10 @@ package events
 
 import (
 	context "context"
-	gomock "github.com/golang/mock/gomock"
 	reflect "reflect"
 	time "time"
+
+	gomock "github.com/golang/mock/gomock"
 )
 
 // MockHandler is a mock of Handler interface
@@ -35,9 +36,9 @@ func (m *MockHandler) EXPECT() *MockHandlerMockRecorder {
 }
 
 // AddEvent mocks base method
-func (m *MockHandler) AddEvent(ctx context.Context, entityID, msg string, eventTime time.Time, otherEntities ...string) {
+func (m *MockHandler) AddEvent(ctx context.Context, entityID, severity, msg string, eventTime time.Time, otherEntities ...string) {
 	m.ctrl.T.Helper()
-	varargs := []interface{}{ctx, entityID, msg, eventTime}
+	varargs := []interface{}{ctx, entityID, severity, msg, eventTime}
 	for _, a := range otherEntities {
 		varargs = append(varargs, a)
 	}
@@ -45,9 +46,9 @@ func (m *MockHandler) AddEvent(ctx context.Context, entityID, msg string, eventT
 }
 
 // AddEvent indicates an expected call of AddEvent
-func (mr *MockHandlerMockRecorder) AddEvent(ctx, entityID, msg, eventTime interface{}, otherEntities ...interface{}) *gomock.Call {
+func (mr *MockHandlerMockRecorder) AddEvent(ctx, entityID, severity, msg, eventTime interface{}, otherEntities ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]interface{}{ctx, entityID, msg, eventTime}, otherEntities...)
+	varargs := append([]interface{}{ctx, entityID, severity, msg, eventTime}, otherEntities...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddEvent", reflect.TypeOf((*MockHandler)(nil).AddEvent), varargs...)
 }
 

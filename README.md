@@ -1,4 +1,7 @@
 [![Actions Status](https://github.com/filanov/bm-inventory/workflows/unit-test/badge.svg)](https://github.com/filanov/bm-inventory/actions)
+
+
+[![Actions Status](https://raw.githubusercontent.com/swagger-api/swagger-ui/master/src/img/logo_small.png)](https://filanov.github.io/bm-inventory/)
 # bm-inventory
 
 ## Prerequisites
@@ -18,27 +21,28 @@ To push your build target to a Docker registry you first need to change the defa
 1. Login to quay.io using `docker login quay.io`.
 1. Export the `SERVICE` environment variable to your Docker registry, and pass a tag of your choice, e.g., "test":
 
-```shell script
+```sh
 export SERVICE=quay.io/<username>/bm-inventory:<tag>
 ```
 
-Do the same for s3-object-expirer:
-```shell script
-export OBJEXP=quay.io/<username>/s3-object-expirer:<tag>
-```
-
 For the first build of the build container run:
-`skipper build bm-inventory-build`
+```shell
+skipper build bm-inventory-build
+```
 
 ## Build
 
-`skipper make all`
+```shell
+skipper make all
+```
 
 ### Generate code after swagger changes
 
 After every change in the API (`swagger.yaml`) the code should be generated and the build must pass.
 
-`skipper make generate-from-swagger`
+```shell
+skipper make generate-from-swagger
+```
 
 ## Test
 
@@ -48,35 +52,46 @@ After every change in the API (`swagger.yaml`) the code should be generated and 
 
 ### Run system tests
 
-```shell script
+```shell
 skipper make test
 ```
 
 ### Run system tests with regex
 
-```shell script
+```shell
 skipper make test FOCUS=versions
 ```
 
 ### Run only unit tests
 
-```shell script
+```shell
 skipper make unit-test
 ```
 
 ### Run unit tests for specific package
 
-```shell script
+```shell
 skipper make unit-test TEST=./internal/host
 ```
 
 ### Update service for the subsystem tests
 
-if you are making changes and don't want to deploy everything once again you can simple run this command:
+if you are making changes and don't want to deploy everything once again you can simply run this command:
 
-`skipper make update && kubectl get pod --namespace assisted-installer -o name | grep bm-inventory | xargs kubectl delete --namespace assisted-installer`
+```shell
+skipper make update && kubectl get pod --namespace assisted-installer -o name | grep bm-inventory | xargs kubectl delete --namespace assisted-installer
+```
 
 It will build and push a new image of the service to your Docker registry, then delete the service pod from minikube, the deployment will handle the update and pull the new image to start the service again.
+
+### Use Podman as a Container Engine on test execution
+
+If you wanna execute the tests using Podman instead of Docker use this command:
+
+```shell
+make generate-from-swagger CE=podman
+make unit-test CE=podman
+```
 
 ## Deployment
 
@@ -85,28 +100,38 @@ It will build and push a new image of the service to your Docker registry, then 
 The deployment is a system deployment, it contains all the components the service need for all the operations to work (if implemented).
 S3 service (scality), DB and will use the image generator to create the images in the deployed S3 and create relevant bucket in S3.
 
-`skipper make deploy-all`
+```shell
+skipper make deploy-all
+```
 
 ### Deploy to OpenShift
 
 Besides default minikube deployment, the service support deployment to OpenShift cluster using ingress as the access point to the service.
 
-`skipper make deploy-all TARGET=oc-ingress`
+```shell
+skipper make deploy-all TARGET=oc-ingress
+```
 
 This deployment option have multiple optional parameters that should be used in case you are not the Admin of the cluster:
 1. `APPLY_NAMESPACE` - True by default. Will try to deploy "assisted-installer" namespace, if you are not the Admin of the cluster or maybe you don't have permissions for this operation you may skip namespace deployment.
 1. `INGRESS_DOMAIN` - By default deployment script will try to get the domain prefix from OpenShift ingress controller. If you don't have access to it then you may specify the domain yourself. For example: `apps.ocp.prod.psi.redhat.com`
 
 To set the parameters simply add them in the end of the command, for example
-`skipper make deploy-all TARGET=oc-ingress APPLY_NAMESPACE=False INGRESS_DOMAIN=apps.ocp.prod.psi.redhat.com`
+```shell
+skipper make deploy-all TARGET=oc-ingress APPLY_NAMESPACE=False INGRESS_DOMAIN=apps.ocp.prod.psi.redhat.com
+```
 
 Note: All deployment configurations are under the `deploy` directory in case more detailed configuration is required.
 
 ### Deploy UI
 
 This service support optional UI deployment.
+```shell
+skipper make deploy-ui
+```
 
-`skipper make deploy-ui`
+* In case you are using *podman* run the above command without `skipper`.
+
 
 For OpenShift users, look at the service deployment options on OpenShift platform.
 
@@ -116,67 +141,80 @@ This will allow you to deploy Prometheus and Grafana already integrated with Ass
 
 - On Minikube
 
-    ~~~sh
-    ## Step by step
+    ```shell
+    # Step by step
     make deploy-olm
     make deploy-prometheus
     make deploy-grafana
 
-    ## Or just all-in
+    # Or just all-in
     make deploy-monitoring
-    ~~~
+    ```
 
 - On Openshift
 
-    ~~~sh
-    ## Step by step
-    make deploy-prometheus TARGET=oc-ingress
-    make deploy-grafana TARGET=oc-ingress
+    ```shell
+    # Step by step
+    make deploy-prometheus TARGET=oc-ingress APPLY_NAMESPACE=false
+    make deploy-grafana TARGET=oc-ingress APPLY_NAMESPACE=false
 
-    ## Or just all-in
-    make deploy-monitoring TARGET=oc-ingress
-    ~~~
+    # Or just all-in
+    make deploy-monitoring TARGET=oc-ingress APPLY_NAMESPACE=false
+    ```
 
 NOTE: To expose the monitoring UI's on your local environment you could follow these steps
 
-    ~~~sh
-    kubectl config set-context $(kubectl config current-context) --namespace assisted-installer
+```shell
+kubectl config set-context $(kubectl config current-context) --namespace assisted-installer
 
-    # To expose Prometheus
-    kubectl port-forward svc/prometheus-k8s 9090:9090
+# To expose Prometheus
+kubectl port-forward svc/prometheus-k8s 9090:9090
 
-    # To expose Grafana
-    kubectl port-forward svc/grafana 3000:3000
-    ~~~
+# To expose Grafana
+kubectl port-forward svc/grafana 3000:3000
+```
 
 Now you just need to access [http://127.0.0.1:3000](http://127.0.0.1:3000) to access to your Grafana deployment or [http://127.0.0.1:9090](http://127.0.0.1:9090) for Prometheus.
 
 ### Deploy by tag
 
 This feature is for internal usage and not recommended to use by external users.
-
-`skipper make deploy-all DEPLOY_TAG=<tag>`
-
-This option will select the required tag that will be used for all dependencies.
-So all dependencies should have the same tag.
-The tag is not validated, so you need to make sure it actually exists.
+This option will select the required tag that will be used for each dependency.
 If deploy-all use a new tag the update will be done automatically and there is no need to reboot/rollout any deployment.
+
+Deploy images according to the manifest:
+```
+skipper make deploy-all DEPLOY_MANIFEST_PATH=./assisted-installer.yaml
+```
+
+Deploy images according to the manifest in the assisted-installer-deployment repo (require git tag/branch/hash):
+```
+skipper make deploy-all DEPLOY_MANIFEST_TAG=master
+```
+
+Deploy all the images with the same tag.
+The tag is not validated, so you need to make sure it actually exists.
+```
+skipper make deploy-all DEPLOY_TAG=<tag>
+```
+
+Default tag is latest
+
 
 ## Troubleshooting
 
 A document that can assist troubleshooting: [link](https://docs.google.com/document/d/1WDc5LQjNnqpznM9YFTGb9Bg1kqPVckgGepS4KBxGSqw)
 
-##  Linked repositories 
+##  Linked repositories
 * #### coreos_installation_iso:
-    https://github.com/oshercc/coreos_installation_iso 
+    https://github.com/oshercc/coreos_installation_iso
 
-    Image in charge of generating the Fedora-coreOs image used to install the host with the relevant ignition file.
-    
+    Image in charge of generating the Fedora-coreOs image used to install the host with the relevant ignition file.\
     Image is uploaded to deployed S3 under the name template "installer-image-<cluster-id>".
 * #### ignition manifests and kubeconfig generate:
-    
+
     https://github.com/oshercc/ignition-manifests-and-kubeconfig-generate
-    
+
     Image in charge of generating the following installation files:
     * kubeconfig
     * bootstrap.ign
@@ -184,5 +222,5 @@ A document that can assist troubleshooting: [link](https://docs.google.com/docum
     * worker.ign
     * metadata.json
     * kubeadmin-password
-    
+
    Files are uploaded to deployed S3 under the name template "<cluster-id>/<filename>".

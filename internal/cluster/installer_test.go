@@ -23,10 +23,11 @@ var _ = Describe("installer", func() {
 		id               strfmt.UUID
 		cluster          common.Cluster
 		hostsIds         []strfmt.UUID
+		dbName           = "cluster_installer"
 	)
 
 	BeforeEach(func() {
-		db = prepareDB()
+		db = common.PrepareTestDB(dbName)
 		installerManager = NewInstaller(getTestLog(), db)
 
 		id = strfmt.UUID(uuid.New().String())
@@ -49,6 +50,11 @@ var _ = Describe("installer", func() {
 			err := installerManager.Install(ctx, &cluster, db)
 			Expect(err.Error()).Should(MatchRegexp(errors.Errorf("cluster %s is already installing", cluster.ID).Error()))
 		})
+		It("cluster is finalizing", func() {
+			cluster = updateClusterState(cluster, models.ClusterStatusFinalizing, db)
+			err := installerManager.Install(ctx, &cluster, db)
+			Expect(err.Error()).Should(MatchRegexp(errors.Errorf("cluster %s is already %s", cluster.ID, models.ClusterStatusFinalizing).Error()))
+		})
 		It("cluster is in error", func() {
 			cluster = updateClusterState(cluster, clusterStatusError, db)
 			err := installerManager.Install(ctx, &cluster, db)
@@ -66,6 +72,10 @@ var _ = Describe("installer", func() {
 		})
 		It("cluster is ready", func() {
 			cluster = updateClusterState(cluster, clusterStatusReady, db)
+			Expect(installerManager.Install(ctx, &cluster, db)).Should(HaveOccurred())
+		})
+		It("cluster is ready", func() {
+			cluster = updateClusterState(cluster, clusterStatusPrepareForInstallation, db)
 			err := installerManager.Install(ctx, &cluster, db)
 			Expect(err).Should(BeNil())
 
@@ -79,11 +89,11 @@ var _ = Describe("installer", func() {
 		It("test getting master ids", func() {
 
 			for i := 0; i < 3; i++ {
-				hostsIds = append(hostsIds, addHost("master", host.HostStatusKnown, id, db))
+				hostsIds = append(hostsIds, addHost(models.HostRoleMaster, host.HostStatusKnown, id, db))
 			}
 			masterKnownIds := hostsIds
-			hostsIds = append(hostsIds, addHost("worker", host.HostStatusKnown, id, db))
-			hostsIds = append(hostsIds, addHost("master", host.HostStatusDiscovering, id, db))
+			hostsIds = append(hostsIds, addHost(models.HostRoleWorker, host.HostStatusKnown, id, db))
+			hostsIds = append(hostsIds, addHost(models.HostRoleMaster, host.HostStatusDiscovering, id, db))
 
 			replyMasterNodesIds, err := installerManager.GetMasterNodesIds(ctx, &cluster, db)
 			Expect(err).Should(BeNil())
@@ -94,7 +104,7 @@ var _ = Describe("installer", func() {
 		})
 	})
 	AfterEach(func() {
-		db.Close()
+		common.DeleteTestDB(db, dbName)
 	})
 })
 
@@ -104,7 +114,7 @@ func updateClusterState(cluster common.Cluster, state string, db *gorm.DB) commo
 	return cluster
 }
 
-func addHost(role string, state string, clusterId strfmt.UUID, db *gorm.DB) strfmt.UUID {
+func addHost(role models.HostRole, state string, clusterId strfmt.UUID, db *gorm.DB) strfmt.UUID {
 
 	hostId := strfmt.UUID(uuid.New().String())
 	host := models.Host{
@@ -115,6 +125,15 @@ func addHost(role string, state string, clusterId strfmt.UUID, db *gorm.DB) strf
 	}
 	Expect(db.Create(&host).Error).ShouldNot(HaveOccurred())
 	return hostId
+}
+
+func updateHostProgress(h *models.Host, stage models.HostStage, info string, db *gorm.DB) {
+	progress := &models.HostProgressInfo{
+		CurrentStage: stage,
+		ProgressInfo: info,
+	}
+	h.Progress = progress
+	Expect(db.Model(&h).Update("progress_current_stage", stage, "progress_progress_info", info).Error).ShouldNot(HaveOccurred())
 }
 
 func checkIfIdInArr(a strfmt.UUID, list []*strfmt.UUID) bool {

@@ -22,6 +22,9 @@ type API interface {
 	   CancelInstallation cancels an ongoing installation*/
 	CancelInstallation(ctx context.Context, params *CancelInstallationParams) (*CancelInstallationAccepted, error)
 	/*
+	   CompleteInstallation agents API to mark a finalizing installation as complete*/
+	CompleteInstallation(ctx context.Context, params *CompleteInstallationParams) (*CompleteInstallationAccepted, error)
+	/*
 	   DeregisterCluster deletes an open shift bare metal cluster definition*/
 	DeregisterCluster(ctx context.Context, params *DeregisterClusterParams) (*DeregisterClusterNoContent, error)
 	/*
@@ -29,7 +32,7 @@ type API interface {
 	DeregisterHost(ctx context.Context, params *DeregisterHostParams) (*DeregisterHostNoContent, error)
 	/*
 	   DisableHost disables a host for inclusion in the cluster*/
-	DisableHost(ctx context.Context, params *DisableHostParams) (*DisableHostNoContent, error)
+	DisableHost(ctx context.Context, params *DisableHostParams) (*DisableHostOK, error)
 	/*
 	   DownloadClusterFiles downloads files relating to the installed installing cluster*/
 	DownloadClusterFiles(ctx context.Context, params *DownloadClusterFilesParams, writer io.Writer) (*DownloadClusterFilesOK, error)
@@ -41,7 +44,7 @@ type API interface {
 	DownloadClusterKubeconfig(ctx context.Context, params *DownloadClusterKubeconfigParams, writer io.Writer) (*DownloadClusterKubeconfigOK, error)
 	/*
 	   EnableHost enables a host for inclusion in the cluster*/
-	EnableHost(ctx context.Context, params *EnableHostParams) (*EnableHostNoContent, error)
+	EnableHost(ctx context.Context, params *EnableHostParams) (*EnableHostOK, error)
 	/*
 	   GenerateClusterISO creates a new open shift per cluster discovery i s o*/
 	GenerateClusterISO(ctx context.Context, params *GenerateClusterISOParams) (*GenerateClusterISOCreated, error)
@@ -138,6 +141,30 @@ func (a *Client) CancelInstallation(ctx context.Context, params *CancelInstallat
 }
 
 /*
+CompleteInstallation agents API to mark a finalizing installation as complete
+*/
+func (a *Client) CompleteInstallation(ctx context.Context, params *CompleteInstallationParams) (*CompleteInstallationAccepted, error) {
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "CompleteInstallation",
+		Method:             "POST",
+		PathPattern:        "/clusters/{cluster_id}/actions/complete_installation",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http"},
+		Params:             params,
+		Reader:             &CompleteInstallationReader{formats: a.formats},
+		Context:            ctx,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*CompleteInstallationAccepted), nil
+
+}
+
+/*
 DeregisterCluster deletes an open shift bare metal cluster definition
 */
 func (a *Client) DeregisterCluster(ctx context.Context, params *DeregisterClusterParams) (*DeregisterClusterNoContent, error) {
@@ -188,7 +215,7 @@ func (a *Client) DeregisterHost(ctx context.Context, params *DeregisterHostParam
 /*
 DisableHost disables a host for inclusion in the cluster
 */
-func (a *Client) DisableHost(ctx context.Context, params *DisableHostParams) (*DisableHostNoContent, error) {
+func (a *Client) DisableHost(ctx context.Context, params *DisableHostParams) (*DisableHostOK, error) {
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "DisableHost",
@@ -205,7 +232,7 @@ func (a *Client) DisableHost(ctx context.Context, params *DisableHostParams) (*D
 	if err != nil {
 		return nil, err
 	}
-	return result.(*DisableHostNoContent), nil
+	return result.(*DisableHostOK), nil
 
 }
 
@@ -284,7 +311,7 @@ func (a *Client) DownloadClusterKubeconfig(ctx context.Context, params *Download
 /*
 EnableHost enables a host for inclusion in the cluster
 */
-func (a *Client) EnableHost(ctx context.Context, params *EnableHostParams) (*EnableHostNoContent, error) {
+func (a *Client) EnableHost(ctx context.Context, params *EnableHostParams) (*EnableHostOK, error) {
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "EnableHost",
@@ -301,7 +328,7 @@ func (a *Client) EnableHost(ctx context.Context, params *EnableHostParams) (*Ena
 	if err != nil {
 		return nil, err
 	}
-	return result.(*EnableHostNoContent), nil
+	return result.(*EnableHostOK), nil
 
 }
 
@@ -673,7 +700,7 @@ func (a *Client) UpdateHostInstallProgress(ctx context.Context, params *UpdateHo
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "UpdateHostInstallProgress",
 		Method:             "PUT",
-		PathPattern:        "/clusters/{clusterId}/hosts/{hostId}/progress",
+		PathPattern:        "/clusters/{cluster_id}/hosts/{host_id}/progress",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http"},

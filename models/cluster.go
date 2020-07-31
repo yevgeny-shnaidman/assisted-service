@@ -38,7 +38,7 @@ type Cluster struct {
 
 	// The time that this cluster was created.
 	// Format: date-time
-	CreatedAt strfmt.DateTime `json:"created_at,omitempty" gorm:"type:datetime"`
+	CreatedAt strfmt.DateTime `json:"created_at,omitempty" gorm:"type:timestamp with time zone"`
 
 	// List of host networks to be filled during query.
 	HostNetworks []*HostNetwork `json:"host_networks" gorm:"-"`
@@ -68,11 +68,11 @@ type Cluster struct {
 
 	// The time that this cluster completed installation.
 	// Format: date-time
-	InstallCompletedAt strfmt.DateTime `json:"install_completed_at,omitempty" gorm:"type:datetime;default:0"`
+	InstallCompletedAt strfmt.DateTime `json:"install_completed_at,omitempty" gorm:"type:timestamp with time zone;default:'2000-01-01 00:00:00z'"`
 
 	// The time that this cluster began installation.
 	// Format: date-time
-	InstallStartedAt strfmt.DateTime `json:"install_started_at,omitempty" gorm:"type:datetime;default:0"`
+	InstallStartedAt strfmt.DateTime `json:"install_started_at,omitempty" gorm:"type:timestamp with time zone;default:'2000-01-01 00:00:00z'"`
 
 	// Indicates the type of this object. Will be 'Cluster' if this is a complete object or 'ClusterLink' if it is just a link.
 	// Required: true
@@ -90,6 +90,9 @@ type Cluster struct {
 	// Enum: [4.5]
 	OpenshiftVersion string `json:"openshift_version,omitempty"`
 
+	// org id
+	OrgID string `json:"org_id,omitempty"`
+
 	// True if the pull-secret has been added to the cluster
 	PullSecretSet bool `json:"pull_secret_set,omitempty"`
 
@@ -102,7 +105,7 @@ type Cluster struct {
 
 	// Status of the OpenShift cluster.
 	// Required: true
-	// Enum: [insufficient ready error installing installed]
+	// Enum: [insufficient ready error preparing-for-installation installing finalizing installed]
 	Status *string `json:"status"`
 
 	// Additional information pertaining to the status of the OpenShift cluster.
@@ -111,11 +114,14 @@ type Cluster struct {
 
 	// The last time that the cluster status has been updated
 	// Format: date-time
-	StatusUpdatedAt strfmt.DateTime `json:"status_updated_at,omitempty" gorm:"type:datetime"`
+	StatusUpdatedAt strfmt.DateTime `json:"status_updated_at,omitempty" gorm:"type:timestamp with time zone"`
 
 	// The last time that this cluster was updated.
 	// Format: date-time
-	UpdatedAt strfmt.DateTime `json:"updated_at,omitempty" gorm:"type:datetime"`
+	UpdatedAt strfmt.DateTime `json:"updated_at,omitempty" gorm:"type:timestamp with time zone"`
+
+	// user id
+	UserID string `json:"user_id,omitempty"`
 }
 
 // Validate validates this cluster
@@ -503,7 +509,7 @@ var clusterTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["insufficient","ready","error","installing","installed"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["insufficient","ready","error","preparing-for-installation","installing","finalizing","installed"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -522,8 +528,14 @@ const (
 	// ClusterStatusError captures enum value "error"
 	ClusterStatusError string = "error"
 
+	// ClusterStatusPreparingForInstallation captures enum value "preparing-for-installation"
+	ClusterStatusPreparingForInstallation string = "preparing-for-installation"
+
 	// ClusterStatusInstalling captures enum value "installing"
 	ClusterStatusInstalling string = "installing"
+
+	// ClusterStatusFinalizing captures enum value "finalizing"
+	ClusterStatusFinalizing string = "finalizing"
 
 	// ClusterStatusInstalled captures enum value "installed"
 	ClusterStatusInstalled string = "installed"

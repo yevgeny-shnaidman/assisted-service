@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"reflect"
 	"strings"
@@ -23,6 +22,7 @@ var _ = Describe("system-test image tests", func() {
 	ctx := context.Background()
 	var cluster *installer.RegisterClusterCreated
 	var clusterID strfmt.UUID
+	pullSecret := "{\"auths\":{\"cloud.openshift.com\":{\"auth\":\"dXNlcjpwYXNzd29yZAo=\",\"email\":\"r@r.com\"}}}" // #nosec
 
 	AfterEach(func() {
 		clearDB()
@@ -32,8 +32,9 @@ var _ = Describe("system-test image tests", func() {
 		var err error
 		cluster, err = bmclient.Installer.RegisterCluster(ctx, &installer.RegisterClusterParams{
 			NewClusterParams: &models.ClusterCreateParams{
-				Name:             swag.String("test cluster"),
+				Name:             swag.String("test-cluster"),
 				OpenshiftVersion: swag.String("4.5"),
+				PullSecret:       pullSecret,
 			},
 		})
 		Expect(err).NotTo(HaveOccurred())
@@ -100,7 +101,7 @@ var _ = Describe("image tests", func() {
 	It("[only_k8s]download_non_existing_image", func() {
 		cluster, err := bmclient.Installer.RegisterCluster(ctx, &installer.RegisterClusterParams{
 			NewClusterParams: &models.ClusterCreateParams{
-				Name:             swag.String("test cluster"),
+				Name:             swag.String("test-cluster"),
 				OpenshiftVersion: swag.String("4.5"),
 			},
 		})

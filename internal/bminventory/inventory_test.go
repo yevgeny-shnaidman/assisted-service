@@ -10,8 +10,9 @@ import (
 	"os"
 	"sort"
 	"testing"
+	"time"
 
-	"github.com/filanov/bm-inventory/internal/validators"
+	"github.com/filanov/bm-inventory/internal/metrics"
 
 	"github.com/filanov/bm-inventory/internal/common"
 	"github.com/go-openapi/runtime/middleware"
@@ -31,7 +32,8 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/jinzhu/gorm"
-	_ "github.com/jinzhu/gorm/dialects/sqlite"
+	_ "github.com/jinzhu/gorm/dialects/postgres"
+
 	"github.com/kelseyhightower/envconfig"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -43,15 +45,9 @@ const ClusterStatusInstalled = "installed"
 
 func TestValidator(t *testing.T) {
 	RegisterFailHandler(Fail)
+	common.InitializeDBTest()
+	defer common.TerminateDBTest()
 	RunSpecs(t, "inventory_test")
-}
-
-func prepareDB() *gorm.DB {
-	db, err := gorm.Open("sqlite3", ":memory:")
-	Expect(err).ShouldNot(HaveOccurred())
-	//db = db.Debug()
-	db.AutoMigrate(&common.Cluster{}, &models.Host{})
-	return db
 }
 
 func getTestLog() logrus.FieldLogger {
@@ -74,33 +70,40 @@ var _ = Describe("GenerateClusterISO", func() {
 		ctrl       *gomock.Controller
 		mockJob    *job.MockAPI
 		mockEvents *events.MockHandler
+		dbName     = "generate_cluster_iso"
 	)
 
 	BeforeEach(func() {
 		Expect(envconfig.Process("test", &cfg)).ShouldNot(HaveOccurred())
 		ctrl = gomock.NewController(GinkgoT())
-		db = prepareDB()
+		db = common.PrepareTestDB(dbName)
 		mockEvents = events.NewMockHandler(ctrl)
 		mockJob = job.NewMockAPI(ctrl)
 		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
-		bm = NewBareMetalInventory(db, getTestLog(), nil, nil, cfg, mockJob, mockEvents, nil)
+		bm = NewBareMetalInventory(db, getTestLog(), nil, nil, cfg, mockJob, mockEvents, nil, nil)
 	})
 
-	registerCluster := func() *common.Cluster {
+	AfterEach(func() {
+		ctrl.Finish()
+		common.DeleteTestDB(db, dbName)
+	})
+
+	registerCluster := func(pullSecretSet bool) *common.Cluster {
 		clusterId := strfmt.UUID(uuid.New().String())
 		cluster := common.Cluster{Cluster: models.Cluster{
-			ID: &clusterId,
+			ID:            &clusterId,
+			PullSecretSet: pullSecretSet,
 		}}
 		Expect(db.Create(&cluster).Error).ShouldNot(HaveOccurred())
 		return &cluster
 	}
 
 	It("success", func() {
-		clusterId := registerCluster().ID
+		clusterId := registerCluster(true).ID
 		mockJob.EXPECT().Delete(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
 		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 		mockJob.EXPECT().Monitor(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
-		mockEvents.EXPECT().AddEvent(gomock.Any(), clusterId.String(), "Generated image (proxy URL is \"\", SSH public key is not set)", gomock.Any())
+		mockEvents.EXPECT().AddEvent(gomock.Any(), clusterId.String(), models.EventSeverityInfo, "Generated image (proxy URL is \"\", SSH public key is not set)", gomock.Any())
 		generateReply := bm.GenerateClusterISO(ctx, installer.GenerateClusterISOParams{
 			ClusterID:         *clusterId,
 			ImageCreateParams: &models.ImageCreateParams{},
@@ -111,11 +114,11 @@ var _ = Describe("GenerateClusterISO", func() {
 	})
 
 	It("success with proxy", func() {
-		clusterId := registerCluster().ID
+		clusterId := registerCluster(true).ID
 		mockJob.EXPECT().Delete(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
 		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 		mockJob.EXPECT().Monitor(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
-		mockEvents.EXPECT().AddEvent(gomock.Any(), clusterId.String(), "Generated image (proxy URL is \"http://1.1.1.1:1234\", SSH public key "+
+		mockEvents.EXPECT().AddEvent(gomock.Any(), clusterId.String(), models.EventSeverityInfo, "Generated image (proxy URL is \"http://1.1.1.1:1234\", SSH public key "+
 			"is not set)", gomock.Any())
 		generateReply := bm.GenerateClusterISO(ctx, installer.GenerateClusterISOParams{
 			ClusterID:         *clusterId,
@@ -132,9 +135,10 @@ var _ = Describe("GenerateClusterISO", func() {
 	})
 
 	It("failed_to_create_job", func() {
-		clusterId := registerCluster().ID
+		clusterId := registerCluster(true).ID
 		mockJob.EXPECT().Delete(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
 		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(fmt.Errorf("error")).Times(1)
+		mockEvents.EXPECT().AddEvent(gomock.Any(), clusterId.String(), models.EventSeverityError, gomock.Any(), gomock.Any())
 		generateReply := bm.GenerateClusterISO(ctx, installer.GenerateClusterISOParams{
 			ClusterID:         *clusterId,
 			ImageCreateParams: &models.ImageCreateParams{},
@@ -143,10 +147,11 @@ var _ = Describe("GenerateClusterISO", func() {
 	})
 
 	It("job_failed", func() {
-		clusterId := registerCluster().ID
+		clusterId := registerCluster(true).ID
 		mockJob.EXPECT().Delete(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
 		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 		mockJob.EXPECT().Monitor(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("error")).Times(1)
+		mockEvents.EXPECT().AddEvent(gomock.Any(), clusterId.String(), models.EventSeverityError, gomock.Any(), gomock.Any())
 		generateReply := bm.GenerateClusterISO(ctx, installer.GenerateClusterISOParams{
 			ClusterID:         *clusterId,
 			ImageCreateParams: &models.ImageCreateParams{},
@@ -154,11 +159,47 @@ var _ = Describe("GenerateClusterISO", func() {
 		Expect(generateReply).Should(BeAssignableToTypeOf(installer.NewGenerateClusterISOInternalServerError()))
 	})
 
-	AfterEach(func() {
-		ctrl.Finish()
-		db.Close()
+	It("failed_missing_pull_secret", func() {
+		clusterId := registerCluster(false).ID
+		generateReply := bm.GenerateClusterISO(ctx, installer.GenerateClusterISOParams{
+			ClusterID:         *clusterId,
+			ImageCreateParams: &models.ImageCreateParams{},
+		})
+		Expect(generateReply).Should(BeAssignableToTypeOf(installer.NewGenerateClusterISOBadRequest()))
+	})
+})
+
+var _ = Describe("RegisterHost", func() {
+	var (
+		bm     *bareMetalInventory
+		cfg    Config
+		db     *gorm.DB
+		ctx    = context.Background()
+		dbName = "register_host_api"
+	)
+
+	BeforeEach(func() {
+		db = common.PrepareTestDB(dbName)
+		bm = NewBareMetalInventory(db, getTestLog(), nil, nil, cfg, nil, nil, nil, nil)
 	})
 
+	AfterEach(func() {
+		common.DeleteTestDB(db, dbName)
+	})
+
+	It("register host to none existing cluster", func() {
+		hostID := strfmt.UUID(uuid.New().String())
+		reply := bm.RegisterHost(ctx, installer.RegisterHostParams{
+			ClusterID: strfmt.UUID(uuid.New().String()),
+			NewHostParams: &models.HostCreateParams{
+				DiscoveryAgentVersion: "v1",
+				HostID:                &hostID,
+			},
+		})
+		apiErr, ok := reply.(*common.ApiErrorResponse)
+		Expect(ok).Should(BeTrue())
+		Expect(apiErr.StatusCode()).Should(Equal(int32(http.StatusNotFound)))
+	})
 })
 
 var _ = Describe("GetNextSteps", func() {
@@ -172,18 +213,24 @@ var _ = Describe("GetNextSteps", func() {
 		mockJob           *job.MockAPI
 		mockEvents        *events.MockHandler
 		defaultNextStepIn int64
+		dbName            = "get_next_steps"
 	)
 
 	BeforeEach(func() {
 		Expect(envconfig.Process("test", &cfg)).ShouldNot(HaveOccurred())
 		ctrl = gomock.NewController(GinkgoT())
 		defaultNextStepIn = 60
-		db = prepareDB()
+		db = common.PrepareTestDB(dbName)
 		mockHostApi = host.NewMockAPI(ctrl)
 		mockEvents = events.NewMockHandler(ctrl)
 		mockJob = job.NewMockAPI(ctrl)
 		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
-		bm = NewBareMetalInventory(db, getTestLog(), mockHostApi, nil, cfg, mockJob, mockEvents, nil)
+		bm = NewBareMetalInventory(db, getTestLog(), mockHostApi, nil, cfg, mockJob, mockEvents, nil, nil)
+	})
+
+	AfterEach(func() {
+		ctrl.Finish()
+		common.DeleteTestDB(db, dbName)
 	})
 
 	It("get_next_steps_unknown_host", func() {
@@ -208,7 +255,7 @@ var _ = Describe("GetNextSteps", func() {
 		Expect(db.Create(&host).Error).ShouldNot(HaveOccurred())
 
 		var err error
-		expectedStepsReply := models.Steps{NextInstructionSeconds: defaultNextStepIn, Instructions: []*models.Step{{StepType: models.StepTypeHardwareInfo},
+		expectedStepsReply := models.Steps{NextInstructionSeconds: defaultNextStepIn, Instructions: []*models.Step{{StepType: models.StepTypeInventory},
 			{StepType: models.StepTypeConnectivityCheck}}}
 		mockHostApi.EXPECT().GetNextSteps(gomock.Any(), gomock.Any()).Return(expectedStepsReply, err)
 		reply := bm.GetNextSteps(ctx, installer.GetNextStepsParams{
@@ -217,16 +264,11 @@ var _ = Describe("GetNextSteps", func() {
 		})
 		Expect(reply).Should(BeAssignableToTypeOf(installer.NewGetNextStepsOK()))
 		stepsReply := reply.(*installer.GetNextStepsOK).Payload
-		expectedStepsType := []models.StepType{models.StepTypeHardwareInfo, models.StepTypeConnectivityCheck}
+		expectedStepsType := []models.StepType{models.StepTypeInventory, models.StepTypeConnectivityCheck}
 		Expect(stepsReply.Instructions).To(HaveLen(len(expectedStepsType)))
 		for i, step := range stepsReply.Instructions {
 			Expect(step.StepType).Should(Equal(expectedStepsType[i]))
 		}
-	})
-
-	AfterEach(func() {
-		ctrl.Finish()
-		db.Close()
 	})
 })
 
@@ -258,7 +300,24 @@ var _ = Describe("PostStepReply", func() {
 		mockHostApi *host.MockAPI
 		mockJob     *job.MockAPI
 		mockEvents  *events.MockHandler
+		dbName      = "post_step_reply"
 	)
+
+	BeforeEach(func() {
+		Expect(envconfig.Process("test", &cfg)).ShouldNot(HaveOccurred())
+		ctrl = gomock.NewController(GinkgoT())
+		db = common.PrepareTestDB(dbName)
+		mockHostApi = host.NewMockAPI(ctrl)
+		mockEvents = events.NewMockHandler(ctrl)
+		mockJob = job.NewMockAPI(ctrl)
+		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+		bm = NewBareMetalInventory(db, getTestLog(), mockHostApi, nil, cfg, mockJob, mockEvents, nil, nil)
+	})
+
+	AfterEach(func() {
+		ctrl.Finish()
+		common.DeleteTestDB(db, dbName)
+	})
 
 	var makeStepReply = func(clusterID, hostID strfmt.UUID, freeAddresses models.FreeNetworksAddresses) installer.PostStepReplyParams {
 		b, _ := json.Marshal(&freeAddresses)
@@ -271,17 +330,6 @@ var _ = Describe("PostStepReply", func() {
 			},
 		}
 	}
-
-	BeforeEach(func() {
-		Expect(envconfig.Process("test", &cfg)).ShouldNot(HaveOccurred())
-		ctrl = gomock.NewController(GinkgoT())
-		db = prepareDB()
-		mockHostApi = host.NewMockAPI(ctrl)
-		mockEvents = events.NewMockHandler(ctrl)
-		mockJob = job.NewMockAPI(ctrl)
-		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
-		bm = NewBareMetalInventory(db, getTestLog(), mockHostApi, nil, cfg, mockJob, mockEvents, nil)
-	})
 
 	It("free addresses success", func() {
 		clusterId := strToUUID(uuid.New().String())
@@ -321,10 +369,6 @@ var _ = Describe("PostStepReply", func() {
 		Expect(h.FreeAddresses).To(BeEmpty())
 	})
 
-	AfterEach(func() {
-		ctrl.Finish()
-		db.Close()
-	})
 })
 
 var _ = Describe("GetFreeAddresses", func() {
@@ -337,7 +381,24 @@ var _ = Describe("GetFreeAddresses", func() {
 		mockHostApi *host.MockAPI
 		mockJob     *job.MockAPI
 		mockEvents  *events.MockHandler
+		dbName      = "get_free_addresses"
 	)
+
+	BeforeEach(func() {
+		Expect(envconfig.Process("test", &cfg)).ShouldNot(HaveOccurred())
+		ctrl = gomock.NewController(GinkgoT())
+		db = common.PrepareTestDB(dbName)
+		mockHostApi = host.NewMockAPI(ctrl)
+		mockEvents = events.NewMockHandler(ctrl)
+		mockJob = job.NewMockAPI(ctrl)
+		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+		bm = NewBareMetalInventory(db, getTestLog(), mockHostApi, nil, cfg, mockJob, mockEvents, nil, nil)
+	})
+
+	AfterEach(func() {
+		ctrl.Finish()
+		common.DeleteTestDB(db, dbName)
+	})
 
 	var makeHost = func(clusterId *strfmt.UUID, freeAddresses, status string) *models.Host {
 		hostId := strToUUID(uuid.New().String())
@@ -357,17 +418,6 @@ var _ = Describe("GetFreeAddresses", func() {
 			Network:   network,
 		}
 	}
-
-	BeforeEach(func() {
-		Expect(envconfig.Process("test", &cfg)).ShouldNot(HaveOccurred())
-		ctrl = gomock.NewController(GinkgoT())
-		db = prepareDB()
-		mockHostApi = host.NewMockAPI(ctrl)
-		mockEvents = events.NewMockHandler(ctrl)
-		mockJob = job.NewMockAPI(ctrl)
-		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
-		bm = NewBareMetalInventory(db, getTestLog(), mockHostApi, nil, cfg, mockJob, mockEvents, nil)
-	})
 
 	It("success", func() {
 		clusterId := strToUUID(uuid.New().String())
@@ -468,41 +518,53 @@ var _ = Describe("GetFreeAddresses", func() {
 		params := makeGetFreeAddressesParams(*clusterId, "10.0.0.0/24")
 		verifyApiError(bm.GetFreeAddresses(ctx, params), http.StatusNotFound)
 	})
-
-	AfterEach(func() {
-		ctrl.Finish()
-		db.Close()
-	})
 })
 
 var _ = Describe("UpdateHostInstallProgress", func() {
 	var (
-		bm          *bareMetalInventory
-		cfg         Config
-		db          *gorm.DB
-		ctx         = context.Background()
-		ctrl        *gomock.Controller
-		mockJob     *job.MockAPI
-		mockHostApi *host.MockAPI
-		mockEvents  *events.MockHandler
+		bm                   *bareMetalInventory
+		cfg                  Config
+		db                   *gorm.DB
+		ctx                  = context.Background()
+		ctrl                 *gomock.Controller
+		mockJob              *job.MockAPI
+		mockHostApi          *host.MockAPI
+		mockEvents           *events.MockHandler
+		defaultProgressStage models.HostStage
+		dbName               = "update_host_install_progress"
 	)
 
 	BeforeEach(func() {
 		Expect(envconfig.Process("test", &cfg)).ShouldNot(HaveOccurred())
 		ctrl = gomock.NewController(GinkgoT())
-		db = prepareDB()
+		db = common.PrepareTestDB(dbName)
 		mockHostApi = host.NewMockAPI(ctrl)
 		mockEvents = events.NewMockHandler(ctrl)
 		mockJob = job.NewMockAPI(ctrl)
 		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
-		bm = NewBareMetalInventory(db, getTestLog(), mockHostApi, nil, cfg, mockJob, mockEvents, nil)
+		bm = NewBareMetalInventory(db, getTestLog(), mockHostApi, nil, cfg, mockJob, mockEvents, nil, nil)
+		defaultProgressStage = "some progress"
+	})
+
+	AfterEach(func() {
+		ctrl.Finish()
+		common.DeleteTestDB(db, dbName)
 	})
 
 	Context("host exists", func() {
-		var hostID, clusterID strfmt.UUID
+		var (
+			hostID         strfmt.UUID
+			clusterID      strfmt.UUID
+			progressParams *models.HostProgress
+		)
+
 		BeforeEach(func() {
 			hostID = strfmt.UUID(uuid.New().String())
 			clusterID = strfmt.UUID(uuid.New().String())
+			progressParams = &models.HostProgress{
+				CurrentStage: defaultProgressStage,
+			}
+
 			err := db.Create(&models.Host{
 				ID:        &hostID,
 				ClusterID: clusterID,
@@ -512,13 +574,12 @@ var _ = Describe("UpdateHostInstallProgress", func() {
 		})
 
 		It("success", func() {
-			mockEvents.EXPECT().AddEvent(gomock.Any(), hostID.String(), gomock.Any(), gomock.Any(), clusterID.String())
+			mockEvents.EXPECT().AddEvent(gomock.Any(), hostID.String(), models.EventSeverityInfo, gomock.Any(), gomock.Any(), clusterID.String())
 			mockHostApi.EXPECT().UpdateInstallProgress(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-			mockHostApi.EXPECT().GetHostname(gomock.Any())
 			reply := bm.UpdateHostInstallProgress(ctx, installer.UpdateHostInstallProgressParams{
-				ClusterID:                 clusterID,
-				HostInstallProgressParams: "some progress",
-				HostID:                    hostID,
+				ClusterID:    clusterID,
+				HostProgress: progressParams,
+				HostID:       hostID,
 			})
 			Expect(reply).Should(BeAssignableToTypeOf(installer.NewUpdateHostInstallProgressOK()))
 		})
@@ -526,26 +587,23 @@ var _ = Describe("UpdateHostInstallProgress", func() {
 		It("update_failed", func() {
 			mockHostApi.EXPECT().UpdateInstallProgress(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("some error"))
 			reply := bm.UpdateHostInstallProgress(ctx, installer.UpdateHostInstallProgressParams{
-				ClusterID:                 clusterID,
-				HostInstallProgressParams: "some progress",
-				HostID:                    hostID,
+				ClusterID:    clusterID,
+				HostProgress: progressParams,
+				HostID:       hostID,
 			})
-			Expect(reply).Should(BeAssignableToTypeOf(installer.NewUpdateHostInstallProgressOK()))
+			Expect(reply).Should(BeAssignableToTypeOf(installer.NewUpdateHostInstallProgressInternalServerError()))
 		})
 	})
 
 	It("host_dont_exist", func() {
 		reply := bm.UpdateHostInstallProgress(ctx, installer.UpdateHostInstallProgressParams{
-			ClusterID:                 strfmt.UUID(uuid.New().String()),
-			HostInstallProgressParams: "some progress",
-			HostID:                    strfmt.UUID(uuid.New().String()),
+			ClusterID: strfmt.UUID(uuid.New().String()),
+			HostProgress: &models.HostProgress{
+				CurrentStage: defaultProgressStage,
+			},
+			HostID: strfmt.UUID(uuid.New().String()),
 		})
-		Expect(reply).Should(BeAssignableToTypeOf(installer.NewUpdateHostInstallProgressOK()))
-	})
-
-	AfterEach(func() {
-		ctrl.Finish()
-		db.Close()
+		Expect(reply).Should(BeAssignableToTypeOf(installer.NewUpdateHostInstallProgressNotFound()))
 	})
 })
 
@@ -563,12 +621,34 @@ var _ = Describe("cluster", func() {
 		ctrl           *gomock.Controller
 		mockHostApi    *host.MockAPI
 		mockClusterApi *cluster.MockAPI
+		mockS3Client   *awsS3Client.MockS3Client
 		mockJob        *job.MockAPI
 		clusterID      strfmt.UUID
 		mockEvents     *events.MockHandler
+		mockMetric     *metrics.MockAPI
+		dbName         = "inventory_cluster"
 	)
 
-	addHost := func(hostId strfmt.UUID, role string, state string, clusterId strfmt.UUID, inventory string, db *gorm.DB) models.Host {
+	BeforeEach(func() {
+		Expect(envconfig.Process("test", &cfg)).ShouldNot(HaveOccurred())
+		ctrl = gomock.NewController(GinkgoT())
+		db = common.PrepareTestDB(dbName)
+		mockClusterApi = cluster.NewMockAPI(ctrl)
+		mockHostApi = host.NewMockAPI(ctrl)
+		mockS3Client = awsS3Client.NewMockS3Client(ctrl)
+		mockEvents = events.NewMockHandler(ctrl)
+		mockJob = job.NewMockAPI(ctrl)
+		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+		mockMetric = metrics.NewMockAPI(ctrl)
+		bm = NewBareMetalInventory(db, getTestLog(), mockHostApi, mockClusterApi, cfg, mockJob, mockEvents, mockS3Client, mockMetric)
+	})
+
+	AfterEach(func() {
+		ctrl.Finish()
+		common.DeleteTestDB(db, dbName)
+	})
+
+	addHost := func(hostId strfmt.UUID, role models.HostRole, state string, clusterId strfmt.UUID, inventory string, db *gorm.DB) models.Host {
 		host := models.Host{
 			ID:        &hostId,
 			ClusterID: clusterId,
@@ -584,15 +664,28 @@ var _ = Describe("cluster", func() {
 		Expect(db.Model(&common.Cluster{Cluster: models.Cluster{ID: &clusterID}}).UpdateColumn("machine_network_cidr", machineCidr).Error).To(Not(HaveOccurred()))
 	}
 
-	getDisk := func() *models.Disk {
-		disk := models.Disk{DriveType: "SSD", Name: "loop0", SizeBytes: 0}
-		return &disk
+	mockClusterPrepareForInstallationSuccess := func(mockClusterApi *cluster.MockAPI) {
+		mockClusterApi.EXPECT().PrepareForInstallation(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	}
+	mockClusterPrepareForInstallationFailure := func(mockClusterApi *cluster.MockAPI) {
+		mockClusterApi.EXPECT().PrepareForInstallation(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(errors.Errorf("error")).Times(1)
+	}
+	mockHostPrepareForInstallationSuccess := func(mockHostApi *host.MockAPI, times int) {
+		mockHostApi.EXPECT().PrepareForInstallation(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(times)
+	}
+	mockHostPrepareForRefresh := func(mockHostApi *host.MockAPI) {
+		mockHostApi.EXPECT().RefreshStatus(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	}
+	mockHostPrepareForInstallationFailure := func(mockHostApi *host.MockAPI, times int) {
+		mockHostApi.EXPECT().PrepareForInstallation(gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(errors.Errorf("error")).Times(times)
 	}
 	setDefaultInstall := func(mockClusterApi *cluster.MockAPI) {
 		mockClusterApi.EXPECT().Install(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	}
-	setDefaultGetMasterNodesIds := func(mockClusterApi *cluster.MockAPI) {
-		mockClusterApi.EXPECT().GetMasterNodesIds(gomock.Any(), gomock.Any(), gomock.Any()).Return([]*strfmt.UUID{&masterHostId1, &masterHostId2, &masterHostId3}, nil).Times(2)
+	setDefaultGetMasterNodesIds := func(mockClusterApi *cluster.MockAPI, times int) {
+		mockClusterApi.EXPECT().GetMasterNodesIds(gomock.Any(), gomock.Any(), gomock.Any()).Return([]*strfmt.UUID{&masterHostId1, &masterHostId2, &masterHostId3}, nil).Times(times)
 	}
 	set4GetMasterNodesIds := func(mockClusterApi *cluster.MockAPI) {
 		mockClusterApi.EXPECT().GetMasterNodesIds(gomock.Any(), gomock.Any(), gomock.Any()).Return([]*strfmt.UUID{&masterHostId1, &masterHostId2, &masterHostId3, &masterHostId4}, nil)
@@ -603,21 +696,29 @@ var _ = Describe("cluster", func() {
 	setDefaultJobMonitor := func(mockJobApi *job.MockAPI) {
 		mockJob.EXPECT().Monitor(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	}
-	setDefaultHostInstall := func(mockClusterApi *cluster.MockAPI) {
-		mockHostApi.EXPECT().Install(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	}
-	validateHostInventory := func(mockClusterApi *cluster.MockAPI) {
-		sufficient := validators.IsSufficientReply{IsSufficient: true}
-		mockHostApi.EXPECT().ValidateCurrentInventory(gomock.Any(), gomock.Any()).Return(&sufficient, nil).AnyTimes()
-	}
-	setDefaultHostGetHostValidDisks := func(mockClusterApi *cluster.MockAPI) {
-		mockHostApi.EXPECT().GetHostValidDisks(gomock.Any()).Return([]*models.Disk{getDisk()}, nil).AnyTimes()
+	setDefaultHostInstall := func(mockClusterApi *cluster.MockAPI, done chan int) {
+		count := 0
+		mockHostApi.EXPECT().Install(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(3).
+			Do(func(ctx context.Context, h *models.Host, db *gorm.DB) {
+				count += 1
+				if count == 3 {
+					done <- 1
+				}
+			})
+
 	}
 	setDefaultHostSetBootstrap := func(mockClusterApi *cluster.MockAPI) {
 		mockHostApi.EXPECT().SetBootstrap(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	}
 	setIgnitionGeneratorVersionSuccess := func(mockClusterApi *cluster.MockAPI) {
 		mockClusterApi.EXPECT().SetGeneratorVersion(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	}
+	setDefaultMetricInstallatioStarted := func(mockMetricApi *metrics.MockAPI) {
+		mockMetricApi.EXPECT().InstallationStarted(gomock.Any()).AnyTimes()
+	}
+	mockHandlePreInstallationError := func(mockClusterApi *cluster.MockAPI, done chan int) {
+		mockClusterApi.EXPECT().HandlePreInstallError(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).
+			Do(func(ctx, c, err interface{}) { done <- 1 })
 	}
 	setCancelInstallationSuccess := func() {
 		mockClusterApi.EXPECT().CancelInstallation(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
@@ -631,14 +732,20 @@ var _ = Describe("cluster", func() {
 		mockClusterApi.EXPECT().CancelInstallation(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(common.NewApiError(http.StatusInternalServerError, nil)).Times(1)
 	}
 	setResetClusterSuccess := func() {
+		mockS3Client.EXPECT().DeleteFileFromS3(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mockClusterApi.EXPECT().ResetCluster(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mockHostApi.EXPECT().ResetHost(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	}
 	setResetClusterConflict := func() {
+		mockS3Client.EXPECT().DeleteFileFromS3(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mockClusterApi.EXPECT().ResetCluster(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(common.NewApiError(http.StatusConflict, nil)).Times(1)
 	}
 	setResetClusterInternalServerError := func() {
+		mockS3Client.EXPECT().DeleteFileFromS3(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mockClusterApi.EXPECT().ResetCluster(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(common.NewApiError(http.StatusInternalServerError, nil)).Times(1)
+	}
+	mockIsInstallable := func() {
+		mockHostApi.EXPECT().IsInstallable(gomock.Any()).Return(true).Times(3)
 	}
 	getInventoryStr := func(ipv4Addresses ...string) string {
 		inventory := models.Inventory{Interfaces: []*models.Interface{
@@ -660,18 +767,6 @@ var _ = Describe("cluster", func() {
 		return arr
 	}
 
-	BeforeEach(func() {
-		Expect(envconfig.Process("test", &cfg)).ShouldNot(HaveOccurred())
-		ctrl = gomock.NewController(GinkgoT())
-		db = prepareDB()
-		mockClusterApi = cluster.NewMockAPI(ctrl)
-		mockHostApi = host.NewMockAPI(ctrl)
-		mockEvents = events.NewMockHandler(ctrl)
-		mockJob = job.NewMockAPI(ctrl)
-		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
-		bm = NewBareMetalInventory(db, getTestLog(), mockHostApi, mockClusterApi, cfg, mockJob, mockEvents, nil)
-	})
-
 	Context("Get", func() {
 		{
 			BeforeEach(func() {
@@ -684,12 +779,13 @@ var _ = Describe("cluster", func() {
 				}}).Error
 				Expect(err).ShouldNot(HaveOccurred())
 
-				addHost(masterHostId1, "master", "known", clusterID, getInventoryStr("1.2.3.4/24", "10.11.50.90/16"), db)
-				addHost(masterHostId2, "master", "known", clusterID, getInventoryStr("1.2.3.5/24", "10.11.50.80/16"), db)
-				addHost(masterHostId3, "master", "known", clusterID, getInventoryStr("1.2.3.6/24", "7.8.9.10/24"), db)
+				addHost(masterHostId1, models.HostRoleMaster, "known", clusterID, getInventoryStr("1.2.3.4/24", "10.11.50.90/16"), db)
+				addHost(masterHostId2, models.HostRoleMaster, "known", clusterID, getInventoryStr("1.2.3.5/24", "10.11.50.80/16"), db)
+				addHost(masterHostId3, models.HostRoleMaster, "known", clusterID, getInventoryStr("1.2.3.6/24", "7.8.9.10/24"), db)
 			})
 
 			It("GetCluster", func() {
+				mockHostApi.EXPECT().GetStagesByRole(gomock.Any(), gomock.Any()).Return(nil).Times(3) // Number of hosts
 				reply := bm.GetCluster(ctx, installer.GetClusterParams{
 					ClusterID: clusterID,
 				})
@@ -779,9 +875,9 @@ var _ = Describe("cluster", func() {
 					ID: &clusterID,
 				}}).Error
 				Expect(err).ShouldNot(HaveOccurred())
-				addHost(masterHostId1, "master", "known", clusterID, getInventoryStr("1.2.3.4/24", "10.11.50.90/16"), db)
-				addHost(masterHostId2, "master", "known", clusterID, getInventoryStr("1.2.3.5/24", "10.11.50.80/16"), db)
-				addHost(masterHostId3, "master", "known", clusterID, getInventoryStr("1.2.3.6/24", "7.8.9.10/24"), db)
+				addHost(masterHostId1, models.HostRoleMaster, "known", clusterID, getInventoryStr("1.2.3.4/24", "10.11.50.90/16"), db)
+				addHost(masterHostId2, models.HostRoleMaster, "known", clusterID, getInventoryStr("1.2.3.5/24", "10.11.50.80/16"), db)
+				addHost(masterHostId3, models.HostRoleMaster, "known", clusterID, getInventoryStr("1.2.3.6/24", "7.8.9.10/24"), db)
 				err = db.Model(&models.Host{ID: &masterHostId3, ClusterID: clusterID}).UpdateColumn("free_addresses",
 					makeFreeNetworksAddressesStr(makeFreeAddresses("10.11.0.0/16", "10.11.12.15", "10.11.12.16"))).Error
 				Expect(err).ToNot(HaveOccurred())
@@ -796,7 +892,8 @@ var _ = Describe("cluster", func() {
 						APIVip: &apiVip,
 					},
 				})
-				Expect(reply).To(BeAssignableToTypeOf(installer.NewUpdateClusterBadRequest()))
+				Expect(reply).To(BeAssignableToTypeOf(&common.ApiErrorResponse{}))
+				Expect(reply.(*common.ApiErrorResponse).StatusCode()).To(Equal(int32(http.StatusBadRequest)))
 			})
 			It("Api and ingress mismatch", func() {
 				apiVip := "10.11.12.15"
@@ -808,7 +905,8 @@ var _ = Describe("cluster", func() {
 						IngressVip: &ingressVip,
 					},
 				})
-				Expect(reply).To(BeAssignableToTypeOf(installer.NewUpdateClusterBadRequest()))
+				Expect(reply).To(BeAssignableToTypeOf(&common.ApiErrorResponse{}))
+				Expect(reply.(*common.ApiErrorResponse).StatusCode()).To(Equal(int32(http.StatusBadRequest)))
 			})
 			It("Same api and ingress", func() {
 				apiVip := "10.11.12.15"
@@ -820,12 +918,14 @@ var _ = Describe("cluster", func() {
 						IngressVip: &ingressVip,
 					},
 				})
-				Expect(reply).To(BeAssignableToTypeOf(installer.NewUpdateClusterBadRequest()))
+				Expect(reply).To(BeAssignableToTypeOf(&common.ApiErrorResponse{}))
+				Expect(reply.(*common.ApiErrorResponse).StatusCode()).To(Equal(int32(http.StatusBadRequest)))
 			})
 			It("Update success", func() {
 				apiVip := "10.11.12.15"
 				ingressVip := "10.11.12.16"
-				mockHostApi.EXPECT().RefreshStatus(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).Times(3)
+				mockHostApi.EXPECT().GetStagesByRole(gomock.Any(), gomock.Any()).Return(nil).Times(3) // Number of hosts
+				mockHostApi.EXPECT().RefreshStatus(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(3)
 				mockClusterApi.EXPECT().RefreshStatus(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).Times(1)
 				reply := bm.UpdateCluster(ctx, installer.UpdateClusterParams{
 					ClusterID: clusterID,
@@ -873,62 +973,110 @@ var _ = Describe("cluster", func() {
 	})
 
 	Context("Install", func() {
+		var DoneChannel chan int
+
+		waitForDoneChannel := func() {
+			select {
+			case <-DoneChannel:
+				break
+			case <-time.After(1 * time.Second):
+				panic("not all api calls where made")
+			}
+		}
+
 		BeforeEach(func() {
+			DoneChannel = make(chan int)
 			clusterID = strfmt.UUID(uuid.New().String())
 			err := db.Create(&common.Cluster{Cluster: models.Cluster{
 				ID:                 &clusterID,
 				APIVip:             "10.11.12.13",
 				IngressVip:         "10.11.20.50",
 				MachineNetworkCidr: "10.11.0.0/16",
+				Status:             swag.String(models.ClusterStatusReady),
 			}}).Error
 			Expect(err).ShouldNot(HaveOccurred())
 
-			addHost(masterHostId1, "master", "known", clusterID, getInventoryStr("1.2.3.4/24", "10.11.50.90/16"), db)
-			addHost(masterHostId2, "master", "known", clusterID, getInventoryStr("1.2.3.5/24", "10.11.50.80/16"), db)
-			addHost(masterHostId3, "master", "known", clusterID, getInventoryStr("10.11.200.180/16"), db)
+			addHost(masterHostId1, models.HostRoleMaster, "known", clusterID, getInventoryStr("1.2.3.4/24", "10.11.50.90/16"), db)
+			addHost(masterHostId2, models.HostRoleMaster, "known", clusterID, getInventoryStr("1.2.3.5/24", "10.11.50.80/16"), db)
+			addHost(masterHostId3, models.HostRoleMaster, "known", clusterID, getInventoryStr("10.11.200.180/16"), db)
 			err = db.Model(&models.Host{ID: &masterHostId3, ClusterID: clusterID}).UpdateColumn("free_addresses",
 				makeFreeNetworksAddressesStr(makeFreeAddresses("10.11.0.0/16", "10.11.12.15", "10.11.12.16", "10.11.12.13", "10.11.20.50"))).Error
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("success", func() {
-
-			setDefaultInstall(mockClusterApi)
-			setDefaultGetMasterNodesIds(mockClusterApi)
-			setIgnitionGeneratorVersionSuccess(mockClusterApi)
-
+			mockClusterPrepareForInstallationSuccess(mockClusterApi)
+			mockHostPrepareForRefresh(mockHostApi)
+			mockHostPrepareForInstallationSuccess(mockHostApi, 3)
+			mockIsInstallable()
 			setDefaultJobCreate(mockJob)
 			setDefaultJobMonitor(mockJob)
-			validateHostInventory(mockClusterApi)
-			setDefaultHostInstall(mockClusterApi)
-			setDefaultHostGetHostValidDisks(mockClusterApi)
+			setIgnitionGeneratorVersionSuccess(mockClusterApi)
+			setDefaultInstall(mockClusterApi)
+			setDefaultGetMasterNodesIds(mockClusterApi, 2)
 			setDefaultHostSetBootstrap(mockClusterApi)
+			setDefaultHostInstall(mockClusterApi, DoneChannel)
+			setDefaultMetricInstallatioStarted(mockMetric)
 
 			reply := bm.InstallCluster(ctx, installer.InstallClusterParams{
 				ClusterID: clusterID,
 			})
 
 			Expect(reply).Should(BeAssignableToTypeOf(installer.NewInstallClusterAccepted()))
+			waitForDoneChannel()
 		})
+
+		It("failed to prepare cluster", func() {
+			// validations
+			mockIsInstallable()
+			mockHostPrepareForRefresh(mockHostApi)
+			setDefaultGetMasterNodesIds(mockClusterApi, 1)
+			// sync prepare for installation
+			mockClusterPrepareForInstallationFailure(mockClusterApi)
+
+			reply := bm.InstallCluster(ctx, installer.InstallClusterParams{
+				ClusterID: clusterID,
+			})
+			verifyApiError(reply, http.StatusInternalServerError)
+		})
+
+		It("failed to prepare host", func() {
+			// validations
+			mockHostPrepareForRefresh(mockHostApi)
+			mockIsInstallable()
+			setDefaultGetMasterNodesIds(mockClusterApi, 1)
+			// sync prepare for installation
+			mockClusterPrepareForInstallationSuccess(mockClusterApi)
+			mockHostPrepareForInstallationSuccess(mockHostApi, 2)
+			mockHostPrepareForInstallationFailure(mockHostApi, 1)
+
+			reply := bm.InstallCluster(ctx, installer.InstallClusterParams{
+				ClusterID: clusterID,
+			})
+			verifyApiError(reply, http.StatusInternalServerError)
+		})
+
 		It("cidr calculate error", func() {
-			validateHostInventory(mockClusterApi)
+			mockHostPrepareForRefresh(mockHostApi)
 			updateMachineCidr(clusterID, "", db)
 			reply := bm.InstallCluster(ctx, installer.InstallClusterParams{
 				ClusterID: clusterID,
 			})
 			verifyApiError(reply, http.StatusBadRequest)
 		})
+
 		It("cidr mismatch", func() {
-			validateHostInventory(mockClusterApi)
+			mockHostPrepareForRefresh(mockHostApi)
 			updateMachineCidr(clusterID, "1.1.0.0/16", db)
 			reply := bm.InstallCluster(ctx, installer.InstallClusterParams{
 				ClusterID: clusterID,
 			})
 			verifyApiError(reply, http.StatusBadRequest)
 		})
+
 		It("Additional non matching master", func() {
-			validateHostInventory(mockClusterApi)
-			addHost(masterHostId4, "master", "known", clusterID, getInventoryStr("10.12.200.180/16"), db)
+			mockHostPrepareForRefresh(mockHostApi)
+			addHost(masterHostId4, models.HostRoleMaster, "known", clusterID, getInventoryStr("10.12.200.180/16"), db)
 			set4GetMasterNodesIds(mockClusterApi)
 
 			reply := bm.InstallCluster(ctx, installer.InstallClusterParams{
@@ -936,39 +1084,86 @@ var _ = Describe("cluster", func() {
 			})
 			verifyApiError(reply, http.StatusBadRequest)
 		})
+
 		It("cluster failed to update", func() {
-			validateHostInventory(mockClusterApi)
+			mockHostPrepareForRefresh(mockHostApi)
+			mockIsInstallable()
+			mockClusterPrepareForInstallationSuccess(mockClusterApi)
+			mockHostPrepareForInstallationSuccess(mockHostApi, 3)
+			setDefaultJobCreate(mockJob)
+			setDefaultJobMonitor(mockJob)
+			setIgnitionGeneratorVersionSuccess(mockClusterApi)
+			mockHandlePreInstallationError(mockClusterApi, DoneChannel)
 			mockClusterApi.EXPECT().GetMasterNodesIds(gomock.Any(), gomock.Any(), gomock.Any()).Return([]*strfmt.UUID{&masterHostId1, &masterHostId2, &masterHostId3}, nil)
 			mockClusterApi.EXPECT().Install(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.Errorf("cluster has a error"))
 			reply := bm.InstallCluster(ctx, installer.InstallClusterParams{
 				ClusterID: clusterID,
 			})
-			verifyApiError(reply, http.StatusConflict)
+			Expect(reply).Should(BeAssignableToTypeOf(installer.NewInstallClusterAccepted()))
+			waitForDoneChannel()
 		})
-		It("cluster failed to  validateHostInventory", func() {
-			mockHostApi.EXPECT().ValidateCurrentInventory(gomock.Any(), gomock.Any()).Return(&validators.IsSufficientReply{IsSufficient: false, Reason: "dummy"}, nil)
+
+		It("not all hosts are ready", func() {
+			mockHostPrepareForRefresh(mockHostApi)
+			setDefaultGetMasterNodesIds(mockClusterApi, 1)
+			// Two out of three nodes are not ready
+			mockHostApi.EXPECT().IsInstallable(gomock.Any()).Return(false).Times(2)
+			mockHostApi.EXPECT().IsInstallable(gomock.Any()).Return(true).Times(1)
 			reply := bm.InstallCluster(ctx, installer.InstallClusterParams{
 				ClusterID: clusterID,
 			})
 			verifyApiError(reply, http.StatusConflict)
 		})
+
 		It("host failed to install", func() {
-
-			validateHostInventory(mockClusterApi)
+			mockHostPrepareForRefresh(mockHostApi)
+			mockClusterPrepareForInstallationSuccess(mockClusterApi)
+			mockHostPrepareForInstallationSuccess(mockHostApi, 3)
+			mockIsInstallable()
 			setDefaultInstall(mockClusterApi)
-			setDefaultGetMasterNodesIds(mockClusterApi)
+			setDefaultGetMasterNodesIds(mockClusterApi, 2)
+			setDefaultJobCreate(mockJob)
+			setDefaultJobMonitor(mockJob)
+			setIgnitionGeneratorVersionSuccess(mockClusterApi)
 
-			mockHostApi.EXPECT().Install(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.Errorf("host has a error")).AnyTimes()
-			setDefaultHostGetHostValidDisks(mockClusterApi)
+			mockHostApi.EXPECT().Install(gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(errors.Errorf("host has a error")).AnyTimes()
 			setDefaultHostSetBootstrap(mockClusterApi)
+			mockHandlePreInstallationError(mockClusterApi, DoneChannel)
 
 			reply := bm.InstallCluster(ctx, installer.InstallClusterParams{
 				ClusterID: clusterID,
 			})
-			verifyApiError(reply, http.StatusConflict)
+			Expect(reply).Should(BeAssignableToTypeOf(installer.NewInstallClusterAccepted()))
+			waitForDoneChannel()
 		})
+
+		It("list of masters for setting bootstrap return empty list", func() {
+			mockHostPrepareForRefresh(mockHostApi)
+			mockClusterPrepareForInstallationSuccess(mockClusterApi)
+			mockHostPrepareForInstallationSuccess(mockHostApi, 3)
+			mockIsInstallable()
+			setDefaultInstall(mockClusterApi)
+			setDefaultJobCreate(mockJob)
+			setDefaultJobMonitor(mockJob)
+			setIgnitionGeneratorVersionSuccess(mockClusterApi)
+			// first call is for verifyClusterNetworkConfig
+			mockClusterApi.EXPECT().GetMasterNodesIds(gomock.Any(), gomock.Any(), gomock.Any()).
+				Return([]*strfmt.UUID{&masterHostId1, &masterHostId2, &masterHostId3}, nil).Times(1)
+			// second call is for setBootstrapHost
+			mockClusterApi.EXPECT().GetMasterNodesIds(gomock.Any(), gomock.Any(), gomock.Any()).
+				Return([]*strfmt.UUID{}, nil).Times(1)
+			mockHandlePreInstallationError(mockClusterApi, DoneChannel)
+
+			reply := bm.InstallCluster(ctx, installer.InstallClusterParams{
+				ClusterID: clusterID,
+			})
+			Expect(reply).Should(BeAssignableToTypeOf(installer.NewInstallClusterAccepted()))
+			waitForDoneChannel()
+		})
+
 		It("GetMasterNodesIds fails", func() {
-			validateHostInventory(mockClusterApi)
+			mockHostPrepareForRefresh(mockHostApi)
 			mockClusterApi.EXPECT().GetMasterNodesIds(gomock.Any(), gomock.Any(), gomock.Any()).
 				Return([]*strfmt.UUID{&masterHostId1, &masterHostId2, &masterHostId3}, errors.Errorf("nop"))
 
@@ -978,8 +1173,9 @@ var _ = Describe("cluster", func() {
 
 			verifyApiError(reply, http.StatusInternalServerError)
 		})
+
 		It("GetMasterNodesIds returns empty list", func() {
-			validateHostInventory(mockClusterApi)
+			mockHostPrepareForRefresh(mockHostApi)
 			mockClusterApi.EXPECT().GetMasterNodesIds(gomock.Any(), gomock.Any(), gomock.Any()).
 				Return([]*strfmt.UUID{&masterHostId1, &masterHostId2, &masterHostId3}, errors.Errorf("nop"))
 
@@ -989,6 +1185,7 @@ var _ = Describe("cluster", func() {
 
 			verifyApiError(reply, http.StatusInternalServerError)
 		})
+
 		It("get DNS domain success", func() {
 			bm.Config.BaseDNSDomains = map[string]string{
 				"dns.example.com": "abc/route53",
@@ -1014,6 +1211,9 @@ var _ = Describe("cluster", func() {
 		})
 
 		Context("CancelInstallation", func() {
+			BeforeEach(func() {
+				mockHostApi.EXPECT().GetStagesByRole(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			})
 			It("cancel installation success", func() {
 				setCancelInstallationSuccess()
 
@@ -1043,13 +1243,16 @@ var _ = Describe("cluster", func() {
 		})
 
 		Context("reset cluster", func() {
-			It("cancel installation success", func() {
+			BeforeEach(func() {
+				mockHostApi.EXPECT().GetStagesByRole(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			})
+			It("reset installation success", func() {
 				setResetClusterSuccess()
 
-				cancelReply := bm.ResetCluster(ctx, installer.ResetClusterParams{
+				resetReply := bm.ResetCluster(ctx, installer.ResetClusterParams{
 					ClusterID: clusterID,
 				})
-				Expect(cancelReply).Should(BeAssignableToTypeOf(installer.NewResetClusterAccepted()))
+				Expect(resetReply).Should(BeAssignableToTypeOf(installer.NewResetClusterAccepted()))
 			})
 			It("reset cluster conflict", func() {
 				setResetClusterConflict()
@@ -1070,10 +1273,33 @@ var _ = Describe("cluster", func() {
 				verifyApiError(cancelReply, http.StatusInternalServerError)
 			})
 		})
-	})
-	AfterEach(func() {
-		ctrl.Finish()
-		db.Close()
+
+		Context("complete installation", func() {
+			success := true
+			errorInfo := "dummy"
+			It("complete success", func() {
+				mockClusterApi.EXPECT().CompleteInstallation(ctx, gomock.Any(), success, errorInfo).Return(nil).Times(1)
+				reply := bm.CompleteInstallation(ctx, installer.CompleteInstallationParams{
+					ClusterID:        clusterID,
+					CompletionParams: &models.CompletionParams{ErrorInfo: errorInfo, IsSuccess: &success},
+				})
+				Expect(reply).Should(BeAssignableToTypeOf(installer.NewCompleteInstallationAccepted()))
+			})
+			It("complete bad request", func() {
+				mockClusterApi.EXPECT().CompleteInstallation(ctx, gomock.Any(), success, errorInfo).Return(common.NewApiError(http.StatusBadRequest, nil)).Times(1)
+
+				reply := bm.CompleteInstallation(ctx, installer.CompleteInstallationParams{
+					ClusterID:        clusterID,
+					CompletionParams: &models.CompletionParams{ErrorInfo: errorInfo, IsSuccess: &success},
+				})
+
+				verifyApiError(reply, http.StatusBadRequest)
+			})
+		})
+
+		AfterEach(func() {
+			close(DoneChannel)
+		})
 	})
 })
 
@@ -1090,25 +1316,32 @@ var _ = Describe("KubeConfig download", func() {
 		c            common.Cluster
 		mockJob      *job.MockAPI
 		clusterApi   cluster.API
+		dbName       = "kubeconfig_download"
 	)
 
 	BeforeEach(func() {
 		Expect(envconfig.Process("test", &cfg)).ShouldNot(HaveOccurred())
 		ctrl = gomock.NewController(GinkgoT())
-		db = prepareDB()
+		db = common.PrepareTestDB(dbName)
 		clusterID = strfmt.UUID(uuid.New().String())
 		mockS3Client = awsS3Client.NewMockS3Client(ctrl)
 		mockJob = job.NewMockAPI(ctrl)
-		clusterApi = cluster.NewManager(getTestLog().WithField("pkg", "cluster-monitor"), db, nil)
+		clusterApi = cluster.NewManager(cluster.Config{}, getTestLog().WithField("pkg", "cluster-monitor"),
+			db, nil, nil, nil)
 
 		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
-		bm = NewBareMetalInventory(db, getTestLog(), nil, clusterApi, cfg, mockJob, nil, mockS3Client)
+		bm = NewBareMetalInventory(db, getTestLog(), nil, clusterApi, cfg, mockJob, nil, mockS3Client, nil)
 		c = common.Cluster{Cluster: models.Cluster{
 			ID:     &clusterID,
 			APIVip: "10.11.12.13",
 		}}
 		err := db.Create(&c).Error
 		Expect(err).ShouldNot(HaveOccurred())
+	})
+
+	AfterEach(func() {
+		ctrl.Finish()
+		common.DeleteTestDB(db, dbName)
 	})
 
 	It("kubeconfig download no cluster id", func() {
@@ -1148,11 +1381,6 @@ var _ = Describe("KubeConfig download", func() {
 		})
 		Expect(generateReply).Should(Equal(filemiddleware.NewResponder(installer.NewDownloadClusterKubeconfigOK().WithPayload(r), kubeconfig, 4)))
 	})
-
-	AfterEach(func() {
-		ctrl.Finish()
-		db.Close()
-	})
 })
 
 var _ = Describe("UploadClusterIngressCert test", func() {
@@ -1172,12 +1400,13 @@ var _ = Describe("UploadClusterIngressCert test", func() {
 		kubeconfigObject    string
 		mockJob             *job.MockAPI
 		clusterApi          cluster.API
+		dbName              = "upload_cluster_ingress_cert"
 	)
 
 	BeforeEach(func() {
 		Expect(envconfig.Process("test", &cfg)).ShouldNot(HaveOccurred())
 		ctrl = gomock.NewController(GinkgoT())
-		db = prepareDB()
+		db = common.PrepareTestDB(dbName)
 		ingressCa = "-----BEGIN CERTIFICATE-----\nMIIDozCCAougAwIBAgIULCOqWTF" +
 			"aEA8gNEmV+rb7h1v0r3EwDQYJKoZIhvcNAQELBQAwYTELMAkGA1UEBhMCaXMxCzAJBgNVBAgMAmRk" +
 			"MQswCQYDVQQHDAJkZDELMAkGA1UECgwCZGQxCzAJBgNVBAsMAmRkMQswCQYDVQQDDAJkZDERMA8GCSqGSIb3DQEJARYCZGQwHhcNMjAwNTI1MTYwNTAwWhcNMzA" +
@@ -1192,9 +1421,10 @@ var _ = Describe("UploadClusterIngressCert test", func() {
 		clusterID = strfmt.UUID(uuid.New().String())
 		mockS3Client = awsS3Client.NewMockS3Client(ctrl)
 		mockJob = job.NewMockAPI(ctrl)
-		clusterApi = cluster.NewManager(getTestLog().WithField("pkg", "cluster-monitor"), db, nil)
+		clusterApi = cluster.NewManager(cluster.Config{}, getTestLog().WithField("pkg", "cluster-monitor"),
+			db, nil, nil, nil)
 		mockJob.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
-		bm = NewBareMetalInventory(db, getTestLog(), nil, clusterApi, cfg, mockJob, nil, mockS3Client)
+		bm = NewBareMetalInventory(db, getTestLog(), nil, clusterApi, cfg, mockJob, nil, mockS3Client, nil)
 		c = common.Cluster{Cluster: models.Cluster{
 			ID:     &clusterID,
 			APIVip: "10.11.12.13",
@@ -1208,8 +1438,14 @@ var _ = Describe("UploadClusterIngressCert test", func() {
 
 	})
 
+	AfterEach(func() {
+		ctrl.Finish()
+		common.DeleteTestDB(db, dbName)
+		kubeconfigFile.Close()
+	})
+
 	objectExists := func() {
-		mockS3Client.EXPECT().DoesObjectExists(ctx, kubeconfigObject, "test").Return(false, nil).Times(1)
+		mockS3Client.EXPECT().DoesObjectExist(ctx, kubeconfigObject, "test").Return(false, nil).Times(1)
 	}
 
 	It("UploadClusterIngressCert no cluster id", func() {
@@ -1229,21 +1465,21 @@ var _ = Describe("UploadClusterIngressCert test", func() {
 
 	})
 	It("UploadClusterIngressCert kubeconfig already exists, return ok", func() {
-		status := ClusterStatusInstalled
+		status := models.ClusterStatusFinalizing
 		c.Status = &status
 		db.Save(&c)
-		mockS3Client.EXPECT().DoesObjectExists(ctx, kubeconfigObject, "test").Return(true, nil).Times(1)
+		mockS3Client.EXPECT().DoesObjectExist(ctx, kubeconfigObject, "test").Return(true, nil).Times(1)
 		generateReply := bm.UploadClusterIngressCert(ctx, installer.UploadClusterIngressCertParams{
 			ClusterID:         clusterID,
 			IngressCertParams: ingressCa,
 		})
 		Expect(generateReply).Should(BeAssignableToTypeOf(installer.NewUploadClusterIngressCertCreated()))
 	})
-	It("UploadClusterIngressCert DoesObjectExists fails ", func() {
-		status := ClusterStatusInstalled
+	It("UploadClusterIngressCert DoesObjectExist fails ", func() {
+		status := models.ClusterStatusFinalizing
 		c.Status = &status
 		db.Save(&c)
-		mockS3Client.EXPECT().DoesObjectExists(ctx, kubeconfigObject, "test").Return(true, errors.Errorf("dummy")).Times(1)
+		mockS3Client.EXPECT().DoesObjectExist(ctx, kubeconfigObject, "test").Return(true, errors.Errorf("dummy")).Times(1)
 		generateReply := bm.UploadClusterIngressCert(ctx, installer.UploadClusterIngressCertParams{
 			ClusterID:         clusterID,
 			IngressCertParams: ingressCa,
@@ -1251,7 +1487,7 @@ var _ = Describe("UploadClusterIngressCert test", func() {
 		Expect(generateReply).Should(BeAssignableToTypeOf(installer.NewUploadClusterIngressCertInternalServerError()))
 	})
 	It("UploadClusterIngressCert s3download failure", func() {
-		status := ClusterStatusInstalled
+		status := models.ClusterStatusFinalizing
 		c.Status = &status
 		db.Save(&c)
 		objectExists()
@@ -1263,7 +1499,7 @@ var _ = Describe("UploadClusterIngressCert test", func() {
 		Expect(generateReply).Should(BeAssignableToTypeOf(installer.NewUploadClusterIngressCertInternalServerError()))
 	})
 	It("UploadClusterIngressCert bad kubeconfig, mergeIngressCaIntoKubeconfig failure", func() {
-		status := ClusterStatusInstalled
+		status := models.ClusterStatusFinalizing
 		c.Status = &status
 		db.Save(&c)
 		r := ioutil.NopCloser(bytes.NewReader([]byte("test")))
@@ -1276,7 +1512,7 @@ var _ = Describe("UploadClusterIngressCert test", func() {
 		Expect(generateReply).Should(BeAssignableToTypeOf(installer.NewUploadClusterIngressCertInternalServerError()))
 	})
 	It("UploadClusterIngressCert bad ingressCa, mergeIngressCaIntoKubeconfig failure", func() {
-		status := ClusterStatusInstalled
+		status := models.ClusterStatusFinalizing
 		c.Status = &status
 		db.Save(&c)
 		objectExists()
@@ -1289,7 +1525,7 @@ var _ = Describe("UploadClusterIngressCert test", func() {
 	})
 
 	It("UploadClusterIngressCert push fails", func() {
-		status := ClusterStatusInstalled
+		status := models.ClusterStatusFinalizing
 		c.Status = &status
 		db.Save(&c)
 		data, err := os.Open("../../subsystem/test_kubeconfig")
@@ -1312,7 +1548,7 @@ var _ = Describe("UploadClusterIngressCert test", func() {
 	})
 
 	It("UploadClusterIngressCert download happy flow", func() {
-		status := ClusterStatusInstalled
+		status := models.ClusterStatusInstalled
 		c.Status = &status
 		db.Save(&c)
 		data, err := os.Open("../../subsystem/test_kubeconfig")
@@ -1330,12 +1566,6 @@ var _ = Describe("UploadClusterIngressCert test", func() {
 			IngressCertParams: ingressCa,
 		})
 		Expect(generateReply).Should(Equal(installer.NewUploadClusterIngressCertCreated()))
-	})
-
-	AfterEach(func() {
-		ctrl.Finish()
-		db.Close()
-		kubeconfigFile.Close()
 	})
 })
 

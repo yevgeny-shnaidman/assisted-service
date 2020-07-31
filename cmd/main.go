@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/filanov/bm-inventory/internal/bminventory"
 	"github.com/filanov/bm-inventory/internal/cluster"
 	"github.com/filanov/bm-inventory/internal/common"
+	"github.com/filanov/bm-inventory/internal/imgexpirer"
 	"github.com/filanov/bm-inventory/internal/metrics"
 
 	"github.com/filanov/bm-inventory/internal/events"
@@ -23,6 +26,7 @@ import (
 	"github.com/filanov/bm-inventory/internal/host"
 	"github.com/filanov/bm-inventory/models"
 	"github.com/filanov/bm-inventory/pkg/app"
+	"github.com/filanov/bm-inventory/pkg/auth"
 	"github.com/filanov/bm-inventory/pkg/job"
 	"github.com/filanov/bm-inventory/pkg/requestid"
 	awsS3Client "github.com/filanov/bm-inventory/pkg/s3Client"
@@ -31,7 +35,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/jinzhu/gorm"
-	_ "github.com/jinzhu/gorm/dialects/mysql"
+	_ "github.com/jinzhu/gorm/dialects/postgres"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,8 +51,10 @@ func init() {
 
 var Options struct {
 	BMConfig                    bminventory.Config
-	DBHost                      string `envconfig:"DB_HOST" default:"mariadb"`
-	DBPort                      string `envconfig:"DB_PORT" default:"3306"`
+	DBHost                      string `envconfig:"DB_HOST" default:"postgres"`
+	DBPort                      string `envconfig:"DB_PORT" default:"5432"`
+	DBUser                      string `envconfig:"DB_USER" default:"admin"`
+	DBPass                      string `envconfig:"DB_PASS" default:"admin"`
 	HWValidatorConfig           hardware.ValidatorCfg
 	JobConfig                   job.Config
 	InstructionConfig           host.InstructionConfig
@@ -56,7 +62,10 @@ var Options struct {
 	S3Config                    s3wrapper.Config
 	HostStateMonitorInterval    time.Duration `envconfig:"HOST_MONITOR_INTERVAL" default:"8s"`
 	Versions                    versions.Versions
-	UseK8s                      bool `envconfig:"USE_K8S" default:"true"` // TODO remove when jobs running deprecated
+	UseK8s                      bool          `envconfig:"USE_K8S" default:"true"` // TODO remove when jobs running deprecated
+	ImageExpirationInterval     time.Duration `envconfig:"IMAGE_EXPIRATION_INTERVAL" default:"30m"`
+	ImageExpirationTime         time.Duration `envconfig:"IMAGE_EXPIRATION_TIME" default:"60m"`
+	ClusterConfig               cluster.Config
 }
 
 func main() {
@@ -94,10 +103,10 @@ func main() {
 		kclient = nil
 	}
 
-	db, err := gorm.Open("mysql",
-		fmt.Sprintf("admin:admin@tcp(%s:%s)/installer?charset=utf8&parseTime=True&loc=Local",
-			Options.DBHost, Options.DBPort))
-
+	// Connect to db
+	db, err := gorm.Open("postgres",
+		fmt.Sprintf("host=%s port=%s user=%s dbname=installer password=%s sslmode=disable",
+			Options.DBHost, Options.DBPort, Options.DBUser, Options.DBPass))
 	if err != nil {
 		log.Fatal("Fail to connect to DB, ", err)
 	}
@@ -116,8 +125,11 @@ func main() {
 	hwValidator := hardware.NewValidator(log.WithField("pkg", "validators"), Options.HWValidatorConfig)
 	connectivityValidator := connectivity.NewValidator(log.WithField("pkg", "validators"))
 	instructionApi := host.NewInstructionManager(log.WithField("pkg", "instructions"), db, hwValidator, Options.InstructionConfig, connectivityValidator)
-	hostApi := host.NewManager(log.WithField("pkg", "host-state"), db, eventsHandler, hwValidator, instructionApi, connectivityValidator)
-	clusterApi := cluster.NewManager(log.WithField("pkg", "cluster-state"), db, eventsHandler)
+	prometheusRegistry := prometheus.DefaultRegisterer
+	metricsManager := metrics.NewMetricsManager(prometheusRegistry)
+	hostApi := host.NewManager(log.WithField("pkg", "host-state"), db, eventsHandler, hwValidator, instructionApi, &Options.HWValidatorConfig, metricsManager)
+	clusterApi := cluster.NewManager(Options.ClusterConfig, log.WithField("pkg", "cluster-state"), db,
+		eventsHandler, hostApi, metricsManager)
 
 	clusterStateMonitor := thread.New(
 		log.WithField("pkg", "cluster-monitor"), "Cluster State Monitor", Options.ClusterStateMonitorInterval, clusterApi.ClusterMonitoring)
@@ -135,9 +147,24 @@ func main() {
 	}
 
 	jobApi := job.New(log.WithField("pkg", "k8s-job-wrapper"), kclient, Options.JobConfig)
-	bm := bminventory.NewBareMetalInventory(db, log.WithField("pkg", "Inventory"), hostApi, clusterApi, Options.BMConfig, jobApi, eventsHandler, s3Client)
+
+	bm := bminventory.NewBareMetalInventory(db, log.WithField("pkg", "Inventory"), hostApi, clusterApi, Options.BMConfig, jobApi, eventsHandler, s3Client, metricsManager)
 
 	events := events.NewApi(eventsHandler, logrus.WithField("pkg", "eventsApi"))
+
+	if Options.UseK8s {
+		s3WrapperClient, s3Err := s3wrapper.NewS3Client(&Options.S3Config)
+		if s3Err != nil {
+			log.Fatal("failed to create S3 client, ", err)
+		}
+		expirer := imgexpirer.NewManager(log, s3WrapperClient, Options.S3Config.S3Bucket, Options.ImageExpirationTime, eventsHandler)
+		imageExpirationMonitor := thread.New(
+			log.WithField("pkg", "image-expiration-monitor"), "Image Expiration Monitor", Options.ImageExpirationInterval, expirer.ExpirationTask)
+		imageExpirationMonitor.Start()
+		defer imageExpirationMonitor.Stop()
+	} else {
+		log.Info("Disabled image expiration monitor")
+	}
 
 	h, err := restapi.Handler(restapi.Config{
 		InstallerAPI:      bm,
@@ -145,11 +172,12 @@ func main() {
 		Logger:            log.Printf,
 		VersionsAPI:       versionHandler,
 		ManagedDomainsAPI: domainHandler,
-		InnerMiddleware:   metrics.WithMatchedRoute(log.WithField("pkg", "matched-h")),
+		InnerMiddleware:   metrics.WithMatchedRoute(log.WithField("pkg", "matched-h"), prometheusRegistry),
 	})
 	h = app.WithMetricsResponderMiddleware(h)
 	h = app.WithHealthMiddleware(h)
-
+	// TODO: replace this with real auth
+	h = auth.GetUserInfoMiddleware(h)
 	h = requestid.Middleware(h)
 	if err != nil {
 		log.Fatal("Failed to init rest handler,", err)

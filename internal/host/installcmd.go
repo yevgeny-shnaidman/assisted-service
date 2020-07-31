@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -45,32 +46,43 @@ func (i *installCmd) GetStep(ctx context.Context, host *models.Host) (*models.St
 
 	var role = host.Role
 	if host.Bootstrap {
-		role = RoleBootstrap
+		role = models.HostRoleBootstrap
 	}
 
-	const cmdArgsTmpl = "sudo podman run -v /dev:/dev:rw -v /opt:/opt:rw --privileged --pid=host --net=host " +
+	cmdArgsTmpl := "sudo podman run -v /dev:/dev:rw -v /opt:/opt:rw --privileged --pid=host --net=host " +
 		"-v /var/log:/var/log:rw --name assisted-installer {{.INSTALLER}} --role {{.ROLE}} --cluster-id {{.CLUSTER_ID}} --host {{.HOST}} " +
-		"--port {{.PORT}} --boot-device {{.BOOT_DEVICE}} --host-id {{.HOST_ID}} --openshift-version {{.OPENSHIFT_VERSION}}"
-	t, err := template.New("cmd").Parse(cmdArgsTmpl)
-	if err != nil {
-		return nil, err
-	}
+		"--port {{.PORT}} --boot-device {{.BOOT_DEVICE}} --host-id {{.HOST_ID}} --openshift-version {{.OPENSHIFT_VERSION}} " +
+		"--controller-image {{.CONTROLLER_IMAGE}}"
 
 	data := map[string]string{
-		"HOST":              i.instructionConfig.InventoryURL,
-		"PORT":              i.instructionConfig.InventoryPort,
+		"HOST":              strings.TrimSpace(i.instructionConfig.InventoryURL),
+		"PORT":              strings.TrimSpace(i.instructionConfig.InventoryPort),
 		"CLUSTER_ID":        string(host.ClusterID),
 		"HOST_ID":           string(*host.ID),
-		"ROLE":              role,
+		"ROLE":              string(role),
 		"INSTALLER":         i.instructionConfig.InstallerImage,
+		"CONTROLLER_IMAGE":  i.instructionConfig.ControllerImage,
 		"BOOT_DEVICE":       "",
 		"OPENSHIFT_VERSION": cluster.OpenshiftVersion,
 	}
+
+	hostname, _ := common.GetCurrentHostName(host)
+	if hostname != "" {
+		cmdArgsTmpl = cmdArgsTmpl + " --host-name {{.HOST_NAME}}"
+		data["HOST_NAME"] = hostname
+	}
+
 	bootdevice, err := getBootDevice(i.log, i.hwValidator, *host)
 	if err != nil {
 		return nil, err
 	}
 	data["BOOT_DEVICE"] = bootdevice
+
+	t, err := template.New("cmd").Parse(cmdArgsTmpl)
+	if err != nil {
+		return nil, err
+	}
+
 	buf := &bytes.Buffer{}
 	if err := t.Execute(buf, data); err != nil {
 		return nil, err

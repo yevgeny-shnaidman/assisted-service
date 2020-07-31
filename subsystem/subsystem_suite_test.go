@@ -2,13 +2,12 @@ package subsystem
 
 import (
 	"fmt"
-	"log"
 	"net/url"
 	"testing"
 
 	"github.com/filanov/bm-inventory/client"
 	"github.com/jinzhu/gorm"
-	_ "github.com/jinzhu/gorm/dialects/mysql"
+	_ "github.com/jinzhu/gorm/dialects/postgres"
 	"github.com/kelseyhightower/envconfig"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -17,6 +16,7 @@ import (
 
 var db *gorm.DB
 var bmclient *client.AssistedInstall
+var log *logrus.Logger
 
 var Options struct {
 	DBHost        string `envconfig:"DB_HOST"`
@@ -26,6 +26,8 @@ var Options struct {
 
 func init() {
 	var err error
+	log = logrus.New()
+	log.SetReportCaller(true)
 	err = envconfig.Process("subsystem", &Options)
 	if err != nil {
 		log.Fatal(err.Error())
@@ -39,8 +41,8 @@ func init() {
 		},
 	})
 
-	db, err = gorm.Open("mysql",
-		fmt.Sprintf("admin:admin@tcp(%s:%s)/installer?charset=utf8&parseTime=True&loc=Local",
+	db, err = gorm.Open("postgres",
+		fmt.Sprintf("host=%s port=%s user=admin dbname=installer password=admin sslmode=disable",
 			Options.DBHost, Options.DBPort))
 	if err != nil {
 		logrus.Fatal("Fail to connect to DB, ", err)

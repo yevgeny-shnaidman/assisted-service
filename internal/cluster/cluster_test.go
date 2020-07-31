@@ -4,41 +4,49 @@ import (
 	"context"
 	"io/ioutil"
 	"net/http"
-	"testing"
 	"time"
 
-	"github.com/pkg/errors"
+	"github.com/filanov/bm-inventory/internal/common"
+	"github.com/filanov/bm-inventory/internal/events"
+	"github.com/filanov/bm-inventory/internal/host"
+	"github.com/filanov/bm-inventory/internal/metrics"
+	"github.com/filanov/bm-inventory/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
-
 	"github.com/jinzhu/gorm"
-	_ "github.com/jinzhu/gorm/dialects/sqlite"
+	_ "github.com/jinzhu/gorm/dialects/postgres"
 	"github.com/sirupsen/logrus"
-
-	"github.com/filanov/bm-inventory/internal/common"
-	"github.com/filanov/bm-inventory/models"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/pkg/errors"
 )
+
+var defaultTestConfig = Config{
+	PrepareConfig: PrepareConfig{
+		InstallationTimeout: 10 * time.Minute,
+	},
+}
 
 var _ = Describe("stateMachine", func() {
 	var (
-		ctx        = context.Background()
-		db         *gorm.DB
-		state      API
-		cluster    common.Cluster
-		stateReply *UpdateReply
-		stateErr   error
+		ctx              = context.Background()
+		db               *gorm.DB
+		state            API
+		cluster          *common.Cluster
+		refreshedCluster *common.Cluster
+		stateErr         error
+		dbName           = "state_machine"
 	)
 
 	BeforeEach(func() {
-		db = prepareDB()
-		state = NewManager(getTestLog(), db, nil)
+		db = common.PrepareTestDB(dbName, &events.Event{})
+		state = NewManager(defaultTestConfig, getTestLog(), db, nil, nil, nil)
 		id := strfmt.UUID(uuid.New().String())
-		cluster = common.Cluster{Cluster: models.Cluster{
+		cluster = &common.Cluster{Cluster: models.Cluster{
 			ID:     &id,
 			Status: swag.String("not a known state"),
 		}}
@@ -47,16 +55,16 @@ var _ = Describe("stateMachine", func() {
 
 	Context("unknown_cluster_state", func() {
 		It("update_cluster", func() {
-			stateReply, stateErr = state.RefreshStatus(ctx, &cluster, db)
+			refreshedCluster, stateErr = state.RefreshStatus(ctx, cluster, db)
 		})
 
 		It("install_cluster", func() {
-			stateErr = state.Install(ctx, &cluster, db)
+			stateErr = state.Install(ctx, cluster, db)
 		})
 
 		AfterEach(func() {
-			db.Close()
-			Expect(stateReply).To(BeNil())
+			common.DeleteTestDB(db, dbName)
+			Expect(refreshedCluster).To(BeNil())
 			Expect(stateErr).Should(HaveOccurred())
 		})
 	})
@@ -83,12 +91,20 @@ var _ = Describe("cluster monitor", func() {
 		clusterApi        *Manager
 		shouldHaveUpdated bool
 		expectedState     string
+		ctrl              *gomock.Controller
+		mockHostAPI       *host.MockAPI
+		mockMetric        *metrics.MockAPI
+		dbName            = "cluster_monitor"
 	)
 
 	BeforeEach(func() {
-		db = prepareDB()
+		db = common.PrepareTestDB(dbName, &events.Event{})
 		id = strfmt.UUID(uuid.New().String())
-		clusterApi = NewManager(getTestLog().WithField("pkg", "cluster-monitor"), db, nil)
+		ctrl = gomock.NewController(GinkgoT())
+		mockHostAPI = host.NewMockAPI(ctrl)
+		mockMetric = metrics.NewMockAPI(ctrl)
+		clusterApi = NewManager(defaultTestConfig, getTestLog().WithField("pkg", "cluster-monitor"), db,
+			nil, mockHostAPI, mockMetric)
 		expectedState = ""
 		shouldHaveUpdated = false
 	})
@@ -103,6 +119,7 @@ var _ = Describe("cluster monitor", func() {
 
 			Expect(db.Create(&c).Error).ShouldNot(HaveOccurred())
 			Expect(err).ShouldNot(HaveOccurred())
+			mockMetric.EXPECT().ClusterInstallationFinished(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 		})
 
 		It("installing -> installing", func() {
@@ -135,15 +152,16 @@ var _ = Describe("cluster monitor", func() {
 			shouldHaveUpdated = false
 			expectedState = "installing"
 		})
-		It("installing -> installed", func() {
+		It("installing -> finalizing", func() {
 			createHost(id, "installed", db)
 			createHost(id, "installed", db)
 			createHost(id, "installed", db)
 
 			shouldHaveUpdated = true
-			expectedState = "installed"
+			expectedState = models.ClusterStatusFinalizing
 		})
 		It("installing -> error", func() {
+			mockMetric.EXPECT().ClusterInstallationFinished(gomock.Any(), "error", gomock.Any(), gomock.Any()).AnyTimes()
 			createHost(id, "error", db)
 			createHost(id, "installed", db)
 			createHost(id, "installed", db)
@@ -152,6 +170,7 @@ var _ = Describe("cluster monitor", func() {
 			expectedState = "error"
 		})
 		It("installing -> error", func() {
+			mockMetric.EXPECT().ClusterInstallationFinished(gomock.Any(), "error", gomock.Any(), gomock.Any()).AnyTimes()
 			createHost(id, "installed", db)
 			createHost(id, "installed", db)
 
@@ -159,6 +178,7 @@ var _ = Describe("cluster monitor", func() {
 			expectedState = "error"
 		})
 		It("installing -> error insufficient hosts", func() {
+			mockMetric.EXPECT().ClusterInstallationFinished(gomock.Any(), "error", gomock.Any(), gomock.Any()).AnyTimes()
 			createHost(id, "installing", db)
 			createHost(id, "installed", db)
 			shouldHaveUpdated = true
@@ -166,6 +186,10 @@ var _ = Describe("cluster monitor", func() {
 
 		})
 	})
+
+	mockHostAPIIsRequireUserActionResetFalse := func(times int) {
+		mockHostAPI.EXPECT().IsRequireUserActionReset(gomock.Any()).Return(false).Times(times)
+	}
 
 	Context("ghost hosts", func() {
 
@@ -183,6 +207,7 @@ var _ = Describe("cluster monitor", func() {
 
 			It("insufficient -> insufficient", func() {
 				createHost(id, "known", db)
+				mockHostAPIIsRequireUserActionResetFalse(1)
 
 				shouldHaveUpdated = false
 				expectedState = "insufficient"
@@ -191,6 +216,7 @@ var _ = Describe("cluster monitor", func() {
 				createHost(id, "known", db)
 				createHost(id, "known", db)
 				createHost(id, "known", db)
+				mockHostAPIIsRequireUserActionResetFalse(3)
 				shouldHaveUpdated = false
 				expectedState = "insufficient"
 			})
@@ -198,6 +224,7 @@ var _ = Describe("cluster monitor", func() {
 				createHost(id, "known", db)
 				createHost(id, "known", db)
 				createHost(id, "known", db)
+				mockHostAPIIsRequireUserActionResetFalse(3)
 
 				shouldHaveUpdated = true
 				expectedState = "ready"
@@ -207,6 +234,7 @@ var _ = Describe("cluster monitor", func() {
 				createHost(id, "known", db)
 				createHost(id, "known", db)
 				createHost(id, "discovering", db)
+				mockHostAPIIsRequireUserActionResetFalse(3)
 
 				shouldHaveUpdated = false
 				expectedState = "insufficient"
@@ -215,6 +243,7 @@ var _ = Describe("cluster monitor", func() {
 				createHost(id, "known", db)
 				createHost(id, "known", db)
 				createHost(id, "error", db)
+				mockHostAPIIsRequireUserActionResetFalse(3)
 
 				shouldHaveUpdated = false
 				expectedState = "insufficient"
@@ -223,6 +252,7 @@ var _ = Describe("cluster monitor", func() {
 				createHost(id, "known", db)
 				createHost(id, "known", db)
 				createHost(id, "disabled", db)
+				mockHostAPIIsRequireUserActionResetFalse(3)
 
 				shouldHaveUpdated = false
 				expectedState = "insufficient"
@@ -291,7 +321,7 @@ var _ = Describe("cluster monitor", func() {
 		clusterApi.ClusterMonitoring()
 		after := time.Now().Truncate(10 * time.Millisecond)
 		c = geCluster(id, db)
-		Expect(c.Status).Should(Equal(swag.String(expectedState)))
+		Expect(swag.StringValue(c.Status)).Should(Equal(expectedState))
 		if shouldHaveUpdated {
 			Expect(c.StatusInfo).ShouldNot(BeNil())
 			updateTime := time.Time(c.StatusUpdatedAt).Truncate(10 * time.Millisecond)
@@ -302,7 +332,8 @@ var _ = Describe("cluster monitor", func() {
 			Expect(c.StatusInfo).Should(Equal(saveStatusInfo))
 		}
 
-		db.Close()
+		common.DeleteTestDB(db, dbName)
+		ctrl.Finish()
 	})
 
 })
@@ -313,12 +344,14 @@ var _ = Describe("VerifyRegisterHost", func() {
 		id          strfmt.UUID
 		clusterApi  *Manager
 		errTemplate = "Cluster %s is in %s state, host can register only in one of [insufficient ready]"
+		dbName      = "verify_register_host"
 	)
 
 	BeforeEach(func() {
-		db = prepareDB()
+		db = common.PrepareTestDB(dbName, &events.Event{})
 		id = strfmt.UUID(uuid.New().String())
-		clusterApi = NewManager(getTestLog().WithField("pkg", "cluster-monitor"), db, nil)
+		clusterApi = NewManager(defaultTestConfig, getTestLog().WithField("pkg", "cluster-monitor"), db,
+			nil, nil, nil)
 	})
 
 	checkVerifyRegisterHost := func(clusterStatus string, expectErr bool) {
@@ -341,6 +374,9 @@ var _ = Describe("VerifyRegisterHost", func() {
 	It("Register host while cluster in installing state", func() {
 		checkVerifyRegisterHost(clusterStatusInstalling, true)
 	})
+	It("Register host while cluster in installing state", func() {
+		checkVerifyRegisterHost(models.ClusterStatusFinalizing, true)
+	})
 	It("Register host while cluster in error state", func() {
 		checkVerifyRegisterHost(clusterStatusError, true)
 	})
@@ -349,7 +385,7 @@ var _ = Describe("VerifyRegisterHost", func() {
 		checkVerifyRegisterHost(clusterStatusInstalled, true)
 	})
 	AfterEach(func() {
-		db.Close()
+		common.DeleteTestDB(db, dbName)
 	})
 })
 
@@ -359,12 +395,14 @@ var _ = Describe("VerifyClusterUpdatability", func() {
 		id          strfmt.UUID
 		clusterApi  *Manager
 		errTemplate = "Cluster %s is in %s state, cluster can be updated only in one of [insufficient ready]"
+		dbName      = "verify_cluster_updatability"
 	)
 
 	BeforeEach(func() {
-		db = prepareDB()
+		db = common.PrepareTestDB(dbName, &events.Event{})
 		id = strfmt.UUID(uuid.New().String())
-		clusterApi = NewManager(getTestLog().WithField("pkg", "cluster-monitor"), db, nil)
+		clusterApi = NewManager(defaultTestConfig, getTestLog().WithField("pkg", "cluster-monitor"), db,
+			nil, nil, nil)
 	})
 
 	checkVerifyClusterUpdatability := func(clusterStatus string, expectErr bool) {
@@ -395,7 +433,7 @@ var _ = Describe("VerifyClusterUpdatability", func() {
 	})
 
 	AfterEach(func() {
-		db.Close()
+		common.DeleteTestDB(db, dbName)
 	})
 })
 
@@ -404,12 +442,14 @@ var _ = Describe("SetGeneratorVersion", func() {
 		db         *gorm.DB
 		id         strfmt.UUID
 		clusterApi *Manager
+		dbName     = "set_generator_version"
 	)
 
 	It("set generator version", func() {
-		db = prepareDB()
+		db = common.PrepareTestDB(dbName, &events.Event{})
 		id = strfmt.UUID(uuid.New().String())
-		clusterApi = NewManager(getTestLog().WithField("pkg", "cluster-monitor"), db, nil)
+		clusterApi = NewManager(defaultTestConfig, getTestLog().WithField("pkg", "cluster-monitor"), db,
+			nil, nil, nil)
 		cluster := common.Cluster{Cluster: models.Cluster{ID: &id, Status: swag.String(clusterStatusReady)}}
 		Expect(db.Create(&cluster).Error).ShouldNot(HaveOccurred())
 		cluster = geCluster(id, db)
@@ -417,19 +457,29 @@ var _ = Describe("SetGeneratorVersion", func() {
 		cluster = geCluster(id, db)
 		Expect(cluster.IgnitionGeneratorVersion).To(Equal("v1"))
 	})
+	AfterEach(func() {
+		common.DeleteTestDB(db, dbName)
+	})
 })
 
 var _ = Describe("CancelInstallation", func() {
 	var (
-		ctx   = context.Background()
-		db    *gorm.DB
-		state API
-		c     common.Cluster
+		ctx           = context.Background()
+		db            *gorm.DB
+		state         API
+		c             common.Cluster
+		eventsHandler events.Handler
+		ctrl          *gomock.Controller
+		mockMetric    *metrics.MockAPI
+		dbName        = "cluster_cancel_installation"
 	)
 
 	BeforeEach(func() {
-		db = prepareDB()
-		state = NewManager(getTestLog(), db, nil)
+		db = common.PrepareTestDB(dbName, &events.Event{})
+		eventsHandler = events.New(db, logrus.New())
+		ctrl = gomock.NewController(GinkgoT())
+		mockMetric = metrics.NewMockAPI(ctrl)
+		state = NewManager(defaultTestConfig, getTestLog(), db, eventsHandler, nil, mockMetric)
 		id := strfmt.UUID(uuid.New().String())
 		c = common.Cluster{Cluster: models.Cluster{
 			ID:     &id,
@@ -440,43 +490,67 @@ var _ = Describe("CancelInstallation", func() {
 	Context("cancel_installation", func() {
 		It("cancel_installation", func() {
 			c.Status = swag.String(clusterStatusInstalling)
+			c.InstallStartedAt = strfmt.DateTime(time.Now().Add(-time.Minute))
 			Expect(db.Create(&c).Error).ShouldNot(HaveOccurred())
+			mockMetric.EXPECT().ClusterInstallationFinished(gomock.Any(), "canceled", c.OpenshiftVersion, c.InstallStartedAt)
 			Expect(state.CancelInstallation(ctx, &c, "some reason", db)).ShouldNot(HaveOccurred())
+			events, err := eventsHandler.GetEvents(c.ID.String())
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(len(events)).ShouldNot(Equal(0))
+			cancelEvent := events[len(events)-1]
+			Expect(*cancelEvent.Severity).Should(Equal(models.EventSeverityInfo))
+			Expect(*cancelEvent.Message).Should(Equal("Canceled cluster installation"))
 		})
 		It("cancel_failed_installation", func() {
 			c.Status = swag.String(clusterStatusError)
+			c.InstallStartedAt = strfmt.DateTime(time.Now().Add(-time.Minute))
 			Expect(db.Create(&c).Error).ShouldNot(HaveOccurred())
+			mockMetric.EXPECT().ClusterInstallationFinished(gomock.Any(), "canceled", c.OpenshiftVersion, c.InstallStartedAt)
 			Expect(state.CancelInstallation(ctx, &c, "some reason", db)).ShouldNot(HaveOccurred())
+			events, err := eventsHandler.GetEvents(c.ID.String())
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(len(events)).ShouldNot(Equal(0))
+			cancelEvent := events[len(events)-1]
+			Expect(*cancelEvent.Severity).Should(Equal(models.EventSeverityInfo))
+			Expect(*cancelEvent.Message).Should(Equal("Canceled cluster installation"))
 		})
 
 		AfterEach(func() {
 			db.First(&c, "id = ?", c.ID)
-			Expect(*c.Status).Should(Equal(clusterStatusError))
+			Expect(swag.StringValue(c.Status)).Should(Equal(clusterStatusError))
 		})
 	})
 
 	Context("invalid_cancel_installation", func() {
 		It("nothing_to_cancel", func() {
 			Expect(state.CancelInstallation(ctx, &c, "some reason", db)).Should(HaveOccurred())
+			events, err := eventsHandler.GetEvents(c.ID.String())
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(len(events)).ShouldNot(Equal(0))
+			cancelEvent := events[len(events)-1]
+			Expect(*cancelEvent.Severity).Should(Equal(models.EventSeverityError))
 		})
 	})
 
 	AfterEach(func() {
-		db.Close()
+		common.DeleteTestDB(db, dbName)
 	})
 })
 
 var _ = Describe("ResetCluster", func() {
 	var (
-		ctx   = context.Background()
-		db    *gorm.DB
-		state API
-		c     common.Cluster
+		ctx           = context.Background()
+		db            *gorm.DB
+		state         API
+		c             common.Cluster
+		eventsHandler events.Handler
+		dbName        = "reset_cluster"
 	)
 
 	BeforeEach(func() {
-		db = prepareDB()
-		state = NewManager(getTestLog(), db, nil)
+		db = common.PrepareTestDB(dbName, &events.Event{})
+		eventsHandler = events.New(db, logrus.New())
+		state = NewManager(defaultTestConfig, getTestLog(), db, eventsHandler, nil, nil)
 	})
 
 	It("reset_cluster", func() {
@@ -488,7 +562,13 @@ var _ = Describe("ResetCluster", func() {
 		Expect(db.Create(&c).Error).ShouldNot(HaveOccurred())
 		Expect(state.ResetCluster(ctx, &c, "some reason", db)).ShouldNot(HaveOccurred())
 		db.First(&c, "id = ?", c.ID)
-		Expect(*c.Status).Should(Equal(clusterStatusInsufficient))
+		Expect(swag.StringValue(c.Status)).Should(Equal(clusterStatusInsufficient))
+		events, err := eventsHandler.GetEvents(c.ID.String())
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(len(events)).ShouldNot(Equal(0))
+		resetEvent := events[len(events)-1]
+		Expect(*resetEvent.Severity).Should(Equal(models.EventSeverityInfo))
+		Expect(*resetEvent.Message).Should(Equal("Reset cluster installation"))
 	})
 
 	It("reset cluster conflict", func() {
@@ -500,10 +580,15 @@ var _ = Describe("ResetCluster", func() {
 		Expect(db.Create(&c).Error).ShouldNot(HaveOccurred())
 		reply := state.ResetCluster(ctx, &c, "some reason", db)
 		Expect(int(reply.StatusCode())).Should(Equal(http.StatusConflict))
+		events, err := eventsHandler.GetEvents(c.ID.String())
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(len(events)).ShouldNot(Equal(0))
+		resetEvent := events[len(events)-1]
+		Expect(*resetEvent.Severity).Should(Equal(models.EventSeverityError))
 	})
 
 	AfterEach(func() {
-		db.Close()
+		common.DeleteTestDB(db, dbName)
 	})
 })
 
@@ -512,23 +597,10 @@ func createHost(clusterId strfmt.UUID, state string, db *gorm.DB) {
 	host := models.Host{
 		ID:        &hostId,
 		ClusterID: clusterId,
-		Role:      "master",
+		Role:      models.HostRoleMaster,
 		Status:    swag.String(state),
 	}
 	Expect(db.Create(&host).Error).ShouldNot(HaveOccurred())
-}
-
-func prepareDB() *gorm.DB {
-	db, err := gorm.Open("sqlite3", ":memory:")
-	Expect(err).ShouldNot(HaveOccurred())
-	db.AutoMigrate(&common.Cluster{})
-	db.AutoMigrate(&models.Host{})
-	return db
-}
-
-func TestCluster(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "cluster state machine tests")
 }
 
 func getTestLog() logrus.FieldLogger {
@@ -550,7 +622,7 @@ func addInstallationRequirements(clusterId strfmt.UUID, db *gorm.DB) {
 		host = models.Host{
 			ID:        &hostId,
 			ClusterID: clusterId,
-			Role:      "master",
+			Role:      models.HostRoleMaster,
 			Status:    swag.String("known"),
 		}
 		Expect(db.Create(&host).Error).ShouldNot(HaveOccurred())
@@ -559,3 +631,165 @@ func addInstallationRequirements(clusterId strfmt.UUID, db *gorm.DB) {
 	Expect(db.Model(&common.Cluster{Cluster: models.Cluster{ID: &clusterId}}).Updates(map[string]interface{}{"api_vip": "1.2.3.5", "ingress_vip": "1.2.3.5"}).Error).To(Not(HaveOccurred()))
 
 }
+
+var _ = Describe("PrepareForInstallation", func() {
+	var (
+		ctx       = context.Background()
+		capi      API
+		db        *gorm.DB
+		clusterId strfmt.UUID
+		dbName    = "cluster_prepare_for_installation"
+	)
+
+	BeforeEach(func() {
+		db = common.PrepareTestDB(dbName, &events.Event{})
+		capi = NewManager(defaultTestConfig, getTestLog(), db, nil, nil, nil)
+		clusterId = strfmt.UUID(uuid.New().String())
+	})
+
+	// state changes to preparing-for-installation
+	success := func(cluster *common.Cluster) {
+		Expect(capi.PrepareForInstallation(ctx, cluster, db)).NotTo(HaveOccurred())
+		Expect(db.Take(cluster, "id = ?", clusterId).Error).NotTo(HaveOccurred())
+		Expect(swag.StringValue(cluster.Status)).To(Equal(models.ClusterStatusPreparingForInstallation))
+	}
+
+	// status should not change
+	failure := func(cluster *common.Cluster) {
+		src := swag.StringValue(cluster.Status)
+		Expect(capi.PrepareForInstallation(ctx, cluster, db)).To(HaveOccurred())
+		Expect(db.Take(cluster, "id = ?", clusterId).Error).NotTo(HaveOccurred())
+		Expect(swag.StringValue(cluster.Status)).Should(Equal(src))
+	}
+
+	tests := []struct {
+		name       string
+		srcState   string
+		validation func(cluster *common.Cluster)
+	}{
+		{
+			name:       "success from ready",
+			srcState:   models.ClusterStatusReady,
+			validation: success,
+		},
+		{
+			name:       "already prepared for installation - should fail",
+			srcState:   models.ClusterStatusPreparingForInstallation,
+			validation: failure,
+		},
+		{
+			name:       "insufficient - should fail",
+			srcState:   models.ClusterStatusInsufficient,
+			validation: failure,
+		},
+		{
+			name:       "installing - should fail",
+			srcState:   models.ClusterStatusInstalling,
+			validation: failure,
+		},
+		{
+			name:       "error - should fail",
+			srcState:   models.ClusterStatusError,
+			validation: failure,
+		},
+		{
+			name:       "installed - should fail",
+			srcState:   models.ClusterStatusInstalled,
+			validation: failure,
+		},
+	}
+
+	for i := range tests {
+		t := tests[i]
+		It(t.name, func() {
+			cluster := common.Cluster{Cluster: models.Cluster{ID: &clusterId, Status: swag.String(t.srcState)}}
+			Expect(db.Create(&cluster).Error).ShouldNot(HaveOccurred())
+			Expect(db.Take(&cluster, "id = ?", clusterId).Error).ShouldNot(HaveOccurred())
+			t.validation(&cluster)
+		})
+	}
+	AfterEach(func() {
+		common.DeleteTestDB(db, dbName)
+	})
+})
+
+var _ = Describe("HandlePreInstallationError", func() {
+	var (
+		ctx       = context.Background()
+		capi      API
+		db        *gorm.DB
+		clusterId strfmt.UUID
+		dbName    = "handle_preInstallation_error"
+	)
+
+	BeforeEach(func() {
+		db = common.PrepareTestDB(dbName, &events.Event{})
+		capi = NewManager(defaultTestConfig, getTestLog(), db, nil, nil, nil)
+		clusterId = strfmt.UUID(uuid.New().String())
+	})
+
+	// state changes to error
+	success := func(cluster *common.Cluster) {
+		capi.HandlePreInstallError(ctx, cluster, errors.Errorf("pre-install error"))
+		Expect(db.Take(cluster, "id = ?", clusterId).Error).NotTo(HaveOccurred())
+		Expect(swag.StringValue(cluster.Status)).To(Equal(models.ClusterStatusError))
+	}
+
+	// status should not change
+	failure := func(cluster *common.Cluster) {
+		src := swag.StringValue(cluster.Status)
+		capi.HandlePreInstallError(ctx, cluster, errors.Errorf("pre-install error"))
+		Expect(db.Take(cluster, "id = ?", clusterId).Error).NotTo(HaveOccurred())
+		Expect(swag.StringValue(cluster.Status)).Should(Equal(src))
+	}
+
+	tests := []struct {
+		name       string
+		srcState   string
+		validation func(cluster *common.Cluster)
+	}{
+		{
+			name:       "success",
+			srcState:   models.ClusterStatusPreparingForInstallation,
+			validation: success,
+		},
+		{
+			name:       "ready - should fail",
+			srcState:   models.ClusterStatusReady,
+			validation: failure,
+		},
+		{
+			name:       "insufficient - should fail",
+			srcState:   models.ClusterStatusInsufficient,
+			validation: failure,
+		},
+		{
+			name:       "installing - should fail",
+			srcState:   models.ClusterStatusInstalling,
+			validation: failure,
+		},
+		{
+			name:       "error - success",
+			srcState:   models.ClusterStatusError,
+			validation: success,
+		},
+		{
+			name:       "installed - should fail",
+			srcState:   models.ClusterStatusInstalled,
+			validation: failure,
+		},
+	}
+
+	for i := range tests {
+		t := tests[i]
+		It(t.name, func() {
+			cluster := common.Cluster{Cluster: models.Cluster{ID: &clusterId, Status: swag.String(t.srcState)}}
+			Expect(db.Create(&cluster).Error).ShouldNot(HaveOccurred())
+			Expect(db.Take(&cluster, "id = ?", clusterId).Error).ShouldNot(HaveOccurred())
+			t.validation(&cluster)
+		})
+	}
+	AfterEach(func() {
+		common.DeleteTestDB(db, dbName)
+	})
+})

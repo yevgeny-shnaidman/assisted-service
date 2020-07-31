@@ -182,6 +182,8 @@ paths:
             $ref: '#/definitions/error'
         409:
           description: Error.
+          schema:
+            $ref: '#/definitions/error'
         500:
           description: Error.
           schema:
@@ -237,7 +239,7 @@ paths:
         - in: query
           name: file_name
           type: string
-          enum: [bootstrap.ign, master.ign, metadata.json, worker.ign, kubeadmin-password, kubeconfig, kubeconfig-noingress]
+          enum: [bootstrap.ign, master.ign, metadata.json, worker.ign, kubeadmin-password, kubeconfig, kubeconfig-noingress, install-config.yaml]
           required: true
       responses:
         200:
@@ -446,6 +448,41 @@ paths:
           schema:
             $ref: '#/definitions/error'
 
+  /clusters/{cluster_id}/actions/complete_installation:
+    post:
+      tags:
+        - installer
+      summary: Agent API to mark a finalizing installation as complete.
+      operationId: CompleteInstallation
+      parameters:
+        - in: path
+          name: cluster_id
+          type: string
+          format: uuid
+          required: true
+        - in: body
+          name: completion-params
+          required: true
+          schema:
+            $ref: '#/definitions/completion-params'
+      responses:
+        202:
+          description: Success.
+          schema:
+            $ref: '#/definitions/cluster'
+        404:
+          description: Error.
+          schema:
+            $ref: '#/definitions/error'
+        409:
+          description: Error.
+          schema:
+            $ref: '#/definitions/error'
+        500:
+          description: Error.
+          schema:
+            $ref: '#/definitions/error'
+
   /clusters/{cluster_id}/hosts:
     post:
       tags:
@@ -473,6 +510,10 @@ paths:
           schema:
             $ref: '#/definitions/error'
         403:
+          description: Error.
+          schema:
+            $ref: '#/definitions/error'
+        404:
           description: Error.
           schema:
             $ref: '#/definitions/error'
@@ -565,7 +606,7 @@ paths:
           schema:
             $ref: '#/definitions/error'
 
-  /clusters/{clusterId}/hosts/{hostId}/progress:
+  /clusters/{cluster_id}/hosts/{host_id}/progress:
     put:
       tags:
         - installer
@@ -573,26 +614,34 @@ paths:
       operationId: UpdateHostInstallProgress
       parameters:
         - in: path
-          name: clusterId
+          name: cluster_id
           description: The ID of the cluster to retrieve
           type: string
           format: uuid
           required: true
         - in: path
-          name: hostId
+          name: host_id
           description: The ID of the host to retrieve
           type: string
           format: uuid
           required: true
         - in: body
-          name: host-install-progress-params
+          name: host-progress
           description: New progress value
           required: true
           schema:
-            $ref: '#/definitions/host-install-progress-params'
+            $ref: '#/definitions/host-progress'
       responses:
         200:
           description: Update install progress
+        404:
+          description: Error.
+          schema:
+            $ref: '#/definitions/error'
+        500:
+          description: Error.
+          schema:
+            $ref: '#/definitions/error'
 
   /clusters/{cluster_id}/hosts/{host_id}/actions/debug:
     post:
@@ -646,8 +695,10 @@ paths:
           format: uuid
           required: true
       responses:
-        204:
+        200:
           description: Success.
+          schema:
+            $ref: '#/definitions/host'
         404:
           description: Error.
           schema:
@@ -678,8 +729,10 @@ paths:
           format: uuid
           required: true
       responses:
-        204:
+        200:
           description: Success.
+          schema:
+            $ref: '#/definitions/host'
         404:
           description: Error.
           schema:
@@ -798,7 +851,11 @@ paths:
           description: Error.
           schema:
             $ref: '#/definitions/error'
-  
+        500:
+          description: Error.
+          schema:
+            $ref: '#/definitions/error'
+
   /domains:
     get:
       tags:
@@ -867,6 +924,14 @@ definitions:
 
   list-versions:
     type: object
+    properties:
+      versions:
+        $ref: '#/definitions/versions'
+      release_tag:
+        type: string
+
+  versions:
+    type: object
     additionalProperties:
       type: string
 
@@ -879,6 +944,7 @@ definitions:
     type: object
     required:
       - entity_id
+      - severity
       - message
       - event_time
     properties:
@@ -887,13 +953,16 @@ definitions:
         format: uuid
         description: Unique identifier of the object this event relates to.
         x-go-custom-tag: gorm:"index"
+      severity:
+        type: string
+        enum: [info, warning, error, critical]
       message:
         type: string
         x-go-custom-tag: gorm:"type:varchar(4096)"
       event_time:
         type: string
         format: date-time
-        x-go-custom-tag: gorm:"type:datetime"
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
       request_id:
         type: string
         format: uuid
@@ -956,23 +1025,46 @@ definitions:
           - disconnected
           - insufficient
           - disabled
+          - preparing-for-installation
+          - pending-for-input
           - installing
           - installing-in-progress
+          - installing-pending-user-action
+          - resetting-pending-user-action
           - installed
           - error
           - resetting
       status_info:
         type: string
         x-go-custom-tag: gorm:"type:varchar(2048)"
+      validations_info:
+        type: string
+        description: Json formatted string containing the validations results for each validation id grouped by category (network, hardware, etc.)
+        x-go-custom-tag: gorm:"type:varchar(2048)"
       status_updated_at:
         type: string
         format: date-time
-        x-go-custom-tag: gorm:"type:datetime"
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
         description: The last time that the host status has been updated
-      connectivity:
-        x-go-custom-tag: gorm:"type:text"
+      progress:
+        $ref: '#/definitions/host-progress-info'
+        x-go-custom-tag: gorm:"embedded;embedded_prefix:progress_"
+      stage_started_at:
         type: string
-      hardware_info:
+        format: date-time
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
+        description: Time at which the current progress stage started
+      stage_updated_at:
+        type: string
+        format: date-time
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
+        description: Time at which the current progress stage was last updated
+      progress_stages:
+        type: array
+        items:
+          $ref: '#/definitions/host-stage'
+        x-go-custom-tag: gorm:"-"
+      connectivity:
         x-go-custom-tag: gorm:"type:text"
         type: string
       inventory:
@@ -982,8 +1074,7 @@ definitions:
         x-go-custom-tag: gorm:"type:text"
         type: string
       role:
-        type: string
-        enum: ['undefined', 'master', 'worker']
+        $ref: '#/definitions/host-role'
       bootstrap:
         type: boolean
       installer_version:
@@ -992,17 +1083,19 @@ definitions:
       updated_at:
         type: string
         format: date-time
-        x-go-custom-tag: gorm:"type:datetime"
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
       created_at:
         type: string
         format: date-time
-        x-go-custom-tag: gorm:"type:datetime"
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
       checked_in_at:
         type: string
         format: date-time
-        x-go-custom-tag: gorm:"type:datetime"
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
         description: The last time the host's agent communicated with the service.
       discovery_agent_version:
+        type: string
+      requested_hostname:
         type: string
 
   steps:
@@ -1019,13 +1112,12 @@ definitions:
   step-type:
     type: string
     enum:
-      - hardware-info
       - connectivity-check
       - execute
       - inventory
       - install
       - free-network-addresses
-      - reset-agent
+      - reset-installation
 
   step:
     type: object
@@ -1193,8 +1285,20 @@ definitions:
               type: string
               format: uuid
             role:
+              $ref: '#/definitions/host-role-update-params'
+      hosts_names:
+        type: array
+        x-go-custom-tag: gorm:"type:varchar(64)[]"
+        description: The desired hostname for hosts associated with the cluster.
+        x-nullable: true
+        items:
+          type: object
+          properties:
+            id:
               type: string
-              enum: ['master', 'worker']
+              format: uuid
+            hostname:
+              type: string
 
   cluster:
     type: object
@@ -1221,6 +1325,10 @@ definitions:
       name:
         type: string
         description: Name of the OpenShift cluster.
+      user_id:
+        type: string
+      org_id:
+        type: string
       openshift_version:
         type: string
         enum: ['4.5']
@@ -1267,7 +1375,9 @@ definitions:
           - insufficient
           - ready
           - error
+          - preparing-for-installation
           - installing
+          - finalizing
           - installed
       status_info:
         type: string
@@ -1276,7 +1386,7 @@ definitions:
       status_updated_at:
         type: string
         format: date-time
-        x-go-custom-tag: gorm:"type:datetime"
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
         description: The last time that the cluster status has been updated
       hosts:
         x-go-custom-tag: gorm:"foreignkey:ClusterID;association_foreignkey:ID"
@@ -1288,22 +1398,22 @@ definitions:
       updated_at:
         type: string
         format: date-time
-        x-go-custom-tag: gorm:"type:datetime"
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
         description: The last time that this cluster was updated.
       created_at:
         type: string
         format: date-time
-        x-go-custom-tag: gorm:"type:datetime"
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
         description: The time that this cluster was created.
       install_started_at:
         type: string
         format: date-time
-        x-go-custom-tag: gorm:"type:datetime;default:0"
+        x-go-custom-tag: gorm:"type:timestamp with time zone;default:'2000-01-01 00:00:00z'"
         description: The time that this cluster began installation.
       install_completed_at:
         type: string
         format: date-time
-        x-go-custom-tag: gorm:"type:datetime;default:0"
+        x-go-custom-tag: gorm:"type:timestamp with time zone;default:'2000-01-01 00:00:00z'"
         description: The time that this cluster completed installation.
       host_networks:
         type: array
@@ -1335,7 +1445,7 @@ definitions:
       created_at:
         type: string
         format: date-time
-        x-go-custom-tag: gorm:"type:datetime"
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
 
   free-addresses-list:
     type: array
@@ -1366,106 +1476,6 @@ definitions:
     properties:
       command:
         type: string
-
-  cpu_details:
-    type: object
-    properties:
-      architecture:
-        type: string
-      model_name:
-        type: string
-      cpus:
-        type: integer
-      threads_per_core:
-        type: integer
-      sockets:
-        type: integer
-      cpu_mhz:
-        type: number
-
-  block-device:
-    type: object
-    properties:
-      name:
-        type: string
-      major_device_number:
-        type: integer
-      minor_device_number:
-        type: integer
-      removable_device:
-        type: integer
-      size:
-        type: integer
-      read_only:
-        type: boolean
-      device_type:
-        type: string
-      mountpoint:
-        type: string
-      fstype:
-        type: string
-
-  memory_details:
-    type: object
-    properties:
-      name:
-        type: string
-      total:
-        type: integer
-      used:
-        type: integer
-      free:
-        type: integer
-      shared:
-        type: integer
-      buff_cached:
-        type: integer
-      available:
-        type: integer
-
-  cidr:
-    type: object
-    properties:
-      ip_address:
-        type: string
-      mask:
-        type: integer
-
-  nic:
-    type: object
-    properties:
-      name:
-        type: string
-      state:
-        type: string
-      mtu:
-        type: integer
-      mac:
-        type: string
-      cidrs:
-        type: array
-        items:
-          $ref: '#/definitions/cidr'
-
-
-  # Return value of hardware info
-  introspection:
-    type: object
-    properties:
-      cpu:
-        $ref: '#/definitions/cpu_details'
-      block_devices:
-        type: array
-        items:
-          $ref: '#/definitions/block-device'
-      memory:
-        type: array
-        items:
-          $ref: '#/definitions/memory_details'
-      nics:
-        type: array
-        items:
-          $ref: '#/definitions/nic'
 
   l2-connectivity:
     type: object
@@ -1518,8 +1528,64 @@ definitions:
   ingress-cert-params:
     type: string
 
-  host-install-progress-params:
+  completion-params:
+    type: object
+    required:
+      - is_success
+    properties:
+      is_success:
+        type: boolean
+      error_info:
+        type: string
+
+  host-progress:
+    type: object
+    required:
+     - current_stage
+    properties:
+      current_stage:
+        type: string
+        $ref: '#/definitions/host-stage'
+      progress_info:
+        type: string
+        x-go-custom-tag: gorm:"type:varchar(2048)"
+
+  host-progress-info:
+    type: object
+    required:
+      - current_stage
+    properties:
+      current_stage:
+        type: string
+        $ref: '#/definitions/host-stage'
+      progress_info:
+        type: string
+        x-go-custom-tag: gorm:"type:varchar(2048)"
+      stage_started_at:
+        type: string
+        format: date-time
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
+        description: Time at which the current progress stage started
+      stage_updated_at:
+        type: string
+        format: date-time
+        x-go-custom-tag: gorm:"type:timestamp with time zone"
+        description: Time at which the current progress stage was last updated
+
+  host-stage:
     type: string
+    enum:
+    - Starting installation
+    - Waiting for control plane
+    - Start Waiting for control plane
+    - Installing
+    - Writing image to disk
+    - Rebooting
+    - Waiting for ignition
+    - Configuring
+    - Joined
+    - Done
+    - Failed
 
   error:
     type: object
@@ -1709,3 +1775,32 @@ definitions:
         type: string
       console_url:
         type: string
+
+  host-role-update-params:
+    type: string
+    enum:
+      - 'master'
+      - 'worker'
+
+  host-role:
+    type: string
+    enum:
+      - 'master'
+      - 'worker'
+      - 'bootstrap'
+
+  host-validation-id:
+    type: string
+    enum:
+      - 'connected'
+      - 'has-inventory'
+      - 'has-min-cpu-cores'
+      - 'has-min-valid-disks'
+      - 'has-min-memory'
+      - 'machine-cidr-defined'
+      - 'role-defined'
+      - 'has-cpu-cores-for-role'
+      - 'has-memory-for-role'
+      - 'hostname-unique'
+      - 'hostname-valid'
+      - 'belongs-to-machine-cidr'

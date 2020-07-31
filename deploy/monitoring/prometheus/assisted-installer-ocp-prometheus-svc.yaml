@@ -6,13 +6,17 @@ metadata:
   labels:
     prometheus: assisted-installer-prometheus
   name: prometheus-k8s
-  namespace: assisted-installer
+  namespace: REPLACE_NAMESPACE
 spec:
   ports:
   - name: proxy
     port: 9091
     protocol: TCP
     targetPort: web-proxy
+  - name: grafana-access
+    port: 9090
+    protocol: TCP
+    targetPort: web
   selector:
     app: prometheus
     prometheus: assisted-installer-prometheus

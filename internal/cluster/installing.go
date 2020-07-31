@@ -4,6 +4,9 @@ import (
 	context "context"
 	"fmt"
 
+	"github.com/filanov/bm-inventory/models"
+	"github.com/go-openapi/swag"
+
 	"github.com/filanov/bm-inventory/internal/common"
 	intenralhost "github.com/filanov/bm-inventory/internal/host"
 
@@ -26,7 +29,7 @@ type installingState baseState
 
 var _ StateAPI = (*Manager)(nil)
 
-func (i *installingState) RefreshStatus(ctx context.Context, c *common.Cluster, db *gorm.DB) (*UpdateReply, error) {
+func (i *installingState) RefreshStatus(ctx context.Context, c *common.Cluster, db *gorm.DB) (*common.Cluster, error) {
 	log := logutil.FromContext(ctx, i.log)
 	installationState, StateInfo, err := i.getClusterInstallationState(ctx, c, db)
 	if err != nil {
@@ -34,15 +37,14 @@ func (i *installingState) RefreshStatus(ctx context.Context, c *common.Cluster, 
 	}
 
 	switch installationState {
+	case models.ClusterStatusFinalizing:
+		return updateClusterStatus(log, db, *c.ID, swag.StringValue(c.Status), models.ClusterStatusFinalizing, StateInfo)
 	case clusterStatusInstalled:
-		return updateState(clusterStatusInstalled, StateInfo, c, db, log)
+		return updateClusterStatus(log, db, *c.ID, swag.StringValue(c.Status), clusterStatusInstalled, StateInfo)
 	case clusterStatusError:
-		return updateState(clusterStatusError, StateInfo, c, db, log)
+		return updateClusterStatus(log, db, *c.ID, swag.StringValue(c.Status), clusterStatusError, StateInfo)
 	case clusterStatusInstalling:
-		return &UpdateReply{
-			State:     clusterStatusInstalling,
-			IsChanged: false,
-		}, nil
+		return c, nil
 	}
 	return nil, errors.Errorf("cluster % state transaction is not clear, installation state: %s ", c.ID, installationState)
 }
@@ -50,28 +52,26 @@ func (i *installingState) RefreshStatus(ctx context.Context, c *common.Cluster, 
 func (i *installingState) getClusterInstallationState(ctx context.Context, c *common.Cluster, db *gorm.DB) (string, string, error) {
 	log := logutil.FromContext(ctx, i.log)
 
-	if err := db.Preload("Hosts").First(&c, "id = ?", c.ID).Error; err != nil {
-		return "", "", errors.Errorf("cluster %s not found", c.ID)
-	}
-
 	mappedMastersByRole := mapMasterHostsByStatus(c)
 
-	// Cluster is in installed
+	// Cluster is in finalizing
 	mastersInInstalled, ok := mappedMastersByRole[intenralhost.HostStatusInstalled]
 	if ok && len(mastersInInstalled) >= minHostsNeededForInstallation {
 		log.Infof("Cluster %s has at least %d installed hosts, cluster is installed.", c.ID, len(mastersInInstalled))
-		return clusterStatusInstalled, statusInfoInstalled, nil
+		return models.ClusterStatusFinalizing, statusInfoFinalizing, nil
 	}
 
 	// Cluster is installing
-	mastersInInstalling := mappedMastersByRole[intenralhost.HostStatusInstalling]
-	mastersInInstallingInProgress := mappedMastersByRole[intenralhost.HostStatusInstallingInProgress]
-	if (len(mastersInInstalling) + len(mastersInInstallingInProgress) + len(mastersInInstalled)) >= minHostsNeededForInstallation {
+	mastersInSomeInstallingStatus := len(mappedMastersByRole[intenralhost.HostStatusInstalling]) +
+		len(mappedMastersByRole[intenralhost.HostStatusInstallingInProgress]) +
+		len(mappedMastersByRole[intenralhost.HostStatusInstalled]) +
+		len(mappedMastersByRole[intenralhost.HostStatusInstallingPendingUserAction])
+	if mastersInSomeInstallingStatus >= minHostsNeededForInstallation {
 		return clusterStatusInstalling, statusInfoInstalling, nil
 	}
 
 	// Cluster is in error
-	mastersInError := mappedMastersByRole[intenralhost.HostStatusError]
-	log.Warningf("Cluster %s has %d hosts in error.", c.ID, len(mastersInError))
-	return clusterStatusError, fmt.Sprintf("cluster %s has %d hosts in error", c.ID, len(mastersInError)), nil
+	log.Infof("Cluster %s hosts status map is %+v", c.ID, mappedMastersByRole)
+	log.Warningf("Cluster %s has hosts in error.", c.ID)
+	return clusterStatusError, fmt.Sprintf("cluster %s has hosts in error", c.ID), nil
 }
