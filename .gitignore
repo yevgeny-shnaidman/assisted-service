@@ -1,5 +1,7 @@
 .idea/
 .vscode/
+.venv/
+venv/
 build/
 kubevirtci/
 **/RCS/**
@@ -10,3 +12,5 @@ __pycache__/
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+/vendor

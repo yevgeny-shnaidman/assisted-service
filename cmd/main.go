@@ -27,6 +27,7 @@ import (
 	"github.com/filanov/bm-inventory/models"
 	"github.com/filanov/bm-inventory/pkg/app"
 	"github.com/filanov/bm-inventory/pkg/auth"
+	"github.com/filanov/bm-inventory/pkg/db"
 	"github.com/filanov/bm-inventory/pkg/job"
 	"github.com/filanov/bm-inventory/pkg/requestid"
 	awsS3Client "github.com/filanov/bm-inventory/pkg/s3Client"
@@ -51,10 +52,7 @@ func init() {
 
 var Options struct {
 	BMConfig                    bminventory.Config
-	DBHost                      string `envconfig:"DB_HOST" default:"postgres"`
-	DBPort                      string `envconfig:"DB_PORT" default:"5432"`
-	DBUser                      string `envconfig:"DB_USER" default:"admin"`
-	DBPass                      string `envconfig:"DB_PASS" default:"admin"`
+	DBConfig                    db.Config
 	HWValidatorConfig           hardware.ValidatorCfg
 	JobConfig                   job.Config
 	InstructionConfig           host.InstructionConfig
@@ -63,6 +61,7 @@ var Options struct {
 	HostStateMonitorInterval    time.Duration `envconfig:"HOST_MONITOR_INTERVAL" default:"8s"`
 	Versions                    versions.Versions
 	UseK8s                      bool          `envconfig:"USE_K8S" default:"true"` // TODO remove when jobs running deprecated
+	CreateS3Bucket              bool          `envconfig:"CREATE_S3_BUCKET" default:"false"`
 	ImageExpirationInterval     time.Duration `envconfig:"IMAGE_EXPIRATION_INTERVAL" default:"30m"`
 	ImageExpirationTime         time.Duration `envconfig:"IMAGE_EXPIRATION_TIME" default:"60m"`
 	ClusterConfig               cluster.Config
@@ -84,8 +83,11 @@ func main() {
 
 	var kclient client.Client
 	if Options.UseK8s {
-		if err = s3wrapper.CreateBucket(&Options.S3Config); err != nil {
-			log.Fatal(err)
+
+		if Options.CreateS3Bucket {
+			if err = s3wrapper.CreateBucket(&Options.S3Config); err != nil {
+				log.Fatal(err)
+			}
 		}
 
 		scheme := runtime.NewScheme()
@@ -104,9 +106,9 @@ func main() {
 	}
 
 	// Connect to db
-	db, err := gorm.Open("postgres",
-		fmt.Sprintf("host=%s port=%s user=%s dbname=installer password=%s sslmode=disable",
-			Options.DBHost, Options.DBPort, Options.DBUser, Options.DBPass))
+	dbConnectionStr := fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=disable",
+		Options.DBConfig.Host, Options.DBConfig.Port, Options.DBConfig.User, Options.DBConfig.Name, Options.DBConfig.Pass)
+	db, err := gorm.Open("postgres", dbConnectionStr)
 	if err != nil {
 		log.Fatal("Fail to connect to DB, ", err)
 	}

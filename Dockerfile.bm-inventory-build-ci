@@ -1,0 +1,42 @@
+FROM centos:7
+
+# Golang env vars
+ENV GO111MODULE=on \
+    TMP=/tmp \
+    GOPATH=${TMP}/go \
+    GOBIN=${TMP}/go/bin \
+    GOFLAGS="" \
+    GOPROXY=https://proxy.golang.org \
+    GOROOT=/usr/local/go \
+    GOLANGCI_LINT_CACHE=/tmp/go/.cache/go-build/.cache
+ENV PATH="${GOBIN}:${HOME}/.go/bin:${PATH}" \
+    GOCACHE="${GOPATH}/pkg/mod" \
+    XDG_CACHE_HOME=${TMP}
+
+# base: EPEL repo for extra tools
+RUN yum -y install epel-release 
+
+# Install base tools
+RUN yum install -y libvirt-client python3-pip postgresql make which git 
+
+# Go 1.14
+RUN curl -o "/tmp/go.tar.gz" https://storage.googleapis.com/golang/go1.14.linux-amd64.tar.gz \
+    && tar -C /usr/local -xzf "/tmp/go.tar.gz" \
+    && ln -s ${GOROOT}/bin/go /usr/bin && ln -s ${GOROOT}/bin/go/gofmt /usr/bin
+
+# golangci-lint
+RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.24.0 \
+    && curl -LO https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl && chmod +x ./kubectl && mv ./kubectl /usr/local/bin/kubectl \
+    && mkdir -p ${HOME}/.cache/golangci-lint && chmod -R 777 ${HOME}/.cache
+
+# Go Deps
+RUN go get -u github.com/onsi/ginkgo/ginkgo@v1.12.2 \
+              golang.org/x/tools/cmd/goimports@v0.0.0-20200520220537-cf2d1e09c845 \
+              github.com/golang/mock/mockgen@v1.4.3 \
+              github.com/vektra/mockery/.../@v1.1.2
+
+# Python Deps
+RUN pip3 install boto3==1.13.14 waiting==1.4.1 awscli --user
+
+# Podman 
+RUN yum install -y podman
