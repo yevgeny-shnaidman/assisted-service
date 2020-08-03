@@ -31,6 +31,9 @@ lint:
 build: create-build-dir lint unit-test
 	CGO_ENABLED=0 go build -o $(BUILD_FOLDER)/bm-inventory cmd/main.go
 
+just-build: create-build-dir
+	CGO_ENABLED=0 go build -o $(BUILD_FOLDER)/bm-inventory cmd/main.go
+
 create-build-dir:
 	mkdir -p $(BUILD_FOLDER)
 

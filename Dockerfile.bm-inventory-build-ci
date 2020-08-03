@@ -35,6 +35,12 @@ RUN go get -u github.com/onsi/ginkgo/ginkgo@v1.12.2 \
               github.com/golang/mock/mockgen@v1.4.3 \
               github.com/vektra/mockery/.../@v1.1.2
 
+# Go Swagger
+RUN curl -L https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 --output /usr/bin/jq && chmod 775 /usr/bin/jq
+RUN export download_url=$(curl -s https://api.github.com/repos/go-swagger/go-swagger/releases/latest | \
+    jq -r '.assets[] | select(.name | contains("'"$(uname | tr '[:upper:]' '[:lower:]')"'_amd64")) | .browser_download_url') \
+    && curl -o /usr/local/bin/swagger -L'#' "$download_url" && chmod +x /usr/local/bin/swagger
+
 # Python Deps
 RUN pip3 install boto3==1.13.14 waiting==1.4.1 awscli --user
 
