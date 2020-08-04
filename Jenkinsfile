@@ -1,6 +1,13 @@
 pipeline {
   agent { label 'bm-inventory-subsystem' }
   stages {
+  stage('test login to quay') {
+       steps {
+           withCredentials([usernameColonPassword(credentialsId: 'ocpmetal_cred', variable: 'PASS')]) {
+            sh '''docker login quay.io -u ocpmetal -p $PASS'''
+          }
+          }
+          }
     stage('clear deployment') {
       steps {
         sh 'make clear-deployment'
