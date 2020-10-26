@@ -178,7 +178,11 @@ func main() {
 	case deployment_type_k8s, deployment_type_ocp:
 		var kclient client.Client
 
-		objectHandler = s3wrapper.NewS3Client(&Options.S3Config, log)
+		if Options.DeployTarget == deployment_type_k8s {
+			objectHandler = s3wrapper.NewS3Client(&Options.S3Config, log)
+		} else {
+			objectHandler = s3wrapper.NewFSClient("/data", log)
+		}
 		if objectHandler == nil {
 			log.Fatal("failed to create S3 client, ", err)
 		}
