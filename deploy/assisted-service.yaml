@@ -115,6 +115,13 @@ spec:
                   fieldPath: metadata.namespace
             - name: AWS_SHARED_CREDENTIALS_FILE
               value: /etc/.aws/credentials
+            - name: WATCH_NAMESPACE
+              value: openshift-machine-api
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
           volumeMounts:
             - name: route53-creds
               mountPath: "/etc/.aws"

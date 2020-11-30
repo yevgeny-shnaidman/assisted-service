@@ -50,6 +50,16 @@ rules:
       - clusterversions
   - verbs:
       - get
+      - list
+      - watch
+      - update
+      - patch
+    apiGroups:
+      - metal3.io
+    resources:
+      - baremetalhosts
+  - verbs:
+      - get
       - update
       - delete
     apiGroups:

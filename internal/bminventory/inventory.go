@@ -240,6 +240,7 @@ const nodeIgnitionFormat = `{
 
 type OCPClusterAPI interface {
 	RegisterOCPCluster(ctx context.Context) error
+	GetOCPClusterHosts() ([]*models.Host, error)
 }
 
 type bareMetalInventory struct {
@@ -3878,4 +3879,14 @@ func (b *bareMetalInventory) setPullSecretFromOCP(cluster *common.Cluster, log l
 	}
 	setPullSecret(cluster, pullSecret)
 	return nil
+}
+
+func (b *bareMetalInventory) GetOCPClusterHosts() ([]*models.Host, error) {
+	var cluster common.Cluster
+	var err error
+
+	if err = b.db.Preload("Hosts").First(&cluster, "kind = ?", models.ClusterKindAddHostsOCPCluster).Error; err != nil {
+		return nil, err
+	}
+	return cluster.Hosts, nil
 }

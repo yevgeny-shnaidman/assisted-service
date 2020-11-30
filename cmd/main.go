@@ -55,6 +55,14 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	// "sigs.k8s.io/controller-runtime/pkg/cache"
+
+	"github.com/openshift/assisted-service/pkg/controller"
+	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
+	operatorleader "github.com/operator-framework/operator-sdk/pkg/leader"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 )
 
 func init() {
@@ -367,6 +375,9 @@ func main() {
 				log.WithError(err).Fatal("Failed to create OCP cluster")
 			}
 		}()
+		go func() {
+			createOperator(log, bm)
+		}()
 	default:
 		apiEnabler.Enable()
 	}
@@ -449,4 +460,71 @@ func uploadBaseISOWithLeader(uploadLeader leader.ElectorInterface, objectHandler
 		log.Info("Finished base ISO upload")
 		return err
 	})
+}
+
+func createOperator(log logrus.FieldLogger, ocpClusterAPI bminventory.OCPClusterAPI) {
+	namespace, err := k8sutil.GetWatchNamespace()
+	if err != nil {
+		log.Error(err, "Failed to get watch namespace")
+		log.Fatal(err)
+	}
+
+	// Get a config to talk to the apiserver
+	cfg, err := config.GetConfig()
+	if err != nil {
+		log.Error(err, "")
+		log.Fatal(err)
+	}
+
+	ctx := context.TODO()
+	// Become the leader before proceeding
+	err = operatorleader.Become(ctx, "assisted-service-operator-lock")
+	if err != nil {
+		log.Error(err, "")
+		log.Fatal(err)
+	}
+
+	// Set default manager options
+	options := manager.Options{
+		Namespace: namespace,
+		// MetricsBindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort),
+		MetricsBindAddress: "0",
+	}
+
+	// Create a new manager to provide shared dependencies and start components
+	mgr, err := manager.New(cfg, options)
+	if err != nil {
+		log.Error(err, "")
+		log.Fatal(err)
+	}
+
+	log.Info("Registering Components.")
+
+	// Setup Scheme for BMH
+	err = bmh_v1alpha1.SchemeBuilder.AddToScheme(mgr.GetScheme())
+	if err != nil {
+		log.Error(err, "")
+		log.Fatal(err)
+	}
+	/*
+	   if err := apis.AddToScheme(mgr.GetScheme()); err != nil {
+	           log.Error(err, "")
+	           log.Fatal(err)
+	   }
+	*/
+
+	// Setup all Controllers
+	// if err := controller.AddToManager(mgr); err != nil {
+	if err := controller.AddWithBMInventory(mgr, ocpClusterAPI); err != nil {
+		log.Error(err, "")
+		log.Fatal(err)
+	}
+
+	log.Info("Starting the Cmd.")
+
+	// Start the Cmd
+	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+		log.Error(err, "Manager exited non-zero")
+		log.Fatal(err)
+	}
 }

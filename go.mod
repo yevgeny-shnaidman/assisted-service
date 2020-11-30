@@ -3,6 +3,7 @@ module github.com/openshift/assisted-service
 go 1.13
 
 require (
+	github.com/Microsoft/go-winio v0.4.15-0.20200113171025-3fe6c5262873 // indirect
 	github.com/ajeddeloh/go-json v0.0.0-20200220154158-5ae607161559 // indirect
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d
 	github.com/asaskevich/govalidator v0.0.0-20200428143746-21a406dcc535
@@ -14,8 +15,8 @@ require (
 	github.com/coreos/ignition/v2 v2.6.0
 	github.com/danielerez/go-dns-client v0.0.0-20200630114514-0b60d1703f0b
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
+	github.com/docker/docker v17.12.0-ce-rc1.0.20200505174321-1655290016ac+incompatible // indirect
 	github.com/filanov/stateswitch v0.0.0-20200714113403-51a42a34c604
-	github.com/fsouza/go-dockerclient v1.6.6 // indirect
 	github.com/go-openapi/errors v0.19.6
 	github.com/go-openapi/loads v0.19.5
 	github.com/go-openapi/runtime v0.19.20
@@ -25,12 +26,13 @@ require (
 	github.com/go-openapi/validate v0.19.10
 	github.com/golang-collections/go-datastructures v0.0.0-20150211160725-59788d5eb259
 	github.com/golang/mock v1.4.4
+	github.com/google/go-cmp v0.5.2 // indirect
 	github.com/google/uuid v1.1.1
 	github.com/iancoleman/strcase v0.1.2
 	github.com/jinzhu/gorm v1.9.12
-	github.com/json-iterator/go v1.1.10 // indirect
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/kennygrant/sanitize v1.2.4
+	github.com/lib/pq v1.7.0 // indirect
 	github.com/metal3-io/baremetal-operator v0.0.0-00010101000000-000000000000
 	github.com/mitchellh/mapstructure v1.3.3 // indirect
 	github.com/moby/moby v1.13.1
@@ -39,7 +41,7 @@ require (
 	github.com/openshift-online/ocm-sdk-go v0.1.130
 	github.com/openshift/api v0.0.0-20200326152221-912866ddb162
 	github.com/openshift/client-go v0.0.0-20200422192633-6f6c07fc2a70
-	github.com/openshift/origin v0.0.0-20160503220234-8f127d736703
+	github.com/operator-framework/operator-sdk v0.18.2
 	github.com/ory/dockertest/v3 v3.6.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pborman/uuid v1.2.0
@@ -55,17 +57,17 @@ require (
 	github.com/vincent-petithory/dataurl v0.0.0-20191104211930-d1553a71de50
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	golang.org/x/sync v0.0.0-20201008141435-b3e1573b7520
-	golang.org/x/text v0.3.3 // indirect
 	golang.org/x/tools v0.0.0-20200914190812-8f9ed77dd8e5 // indirect
+	google.golang.org/protobuf v1.25.0 // indirect
 	gopkg.in/gormigrate.v1 v1.6.0
 	gopkg.in/square/go-jose.v2 v2.3.1
 	gopkg.in/yaml.v2 v2.3.0
 	honnef.co/go/tools v0.0.1-2020.1.5 // indirect
-	k8s.io/api v0.18.5
-	k8s.io/apimachinery v0.18.5
+	k8s.io/api v0.18.8
+	k8s.io/apiextensions-apiserver v0.18.8 // indirect
+	k8s.io/apimachinery v0.18.8
 	k8s.io/client-go v12.0.0+incompatible
-	k8s.io/utils v0.0.0-20200603063816-c1c6865ac451 // indirect
-	sigs.k8s.io/controller-runtime v0.6.0
+	sigs.k8s.io/controller-runtime v0.6.3
 )
 
 replace (
