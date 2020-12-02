@@ -65,11 +65,11 @@ func newReconciler(mgr manager.Manager, ocpClusterAPI bminventory.OCPClusterAPI)
 }
 
 func AddWithBMInventory(mgr manager.Manager, ocpClusterAPI bminventory.OCPClusterAPI) error {
-	return add(mgr, newReconciler(mgr, ocpClusterAPI))
+	return addBMHController(mgr, newReconciler(mgr, ocpClusterAPI))
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
-func add(mgr manager.Manager, r reconcile.Reconciler) error {
+func addBMHController(mgr manager.Manager, r reconcile.Reconciler) error {
 	logrus.Infof("YEV - Start add")
 	// Create a new controller
 	c, err := controller.New("baremetalhost-controller", mgr, controller.Options{Reconciler: r})
@@ -83,18 +83,6 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	if err != nil {
 		return err
 	}
-
-	// TODO(user): Modify this to be the types you create that are owned by the primary resource
-	// Watch for changes to secondary resource Pods and requeue the owner BareMetalHost
-	/*
-	   err = c.Watch(&source.Kind{Type: &corev1.Pod{}}, &handler.EnqueueRequestForOwner{
-	           IsController: true,
-	           OwnerType:    &cachev1alpha1.BareMetalHost{},
-	   })
-	   if err != nil {
-	           return err
-	   }
-	*/
 
 	return nil
 }
@@ -112,9 +100,7 @@ type ReconcileBareMetalHost struct {
 }
 
 func (r *ReconcileBareMetalHost) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	//reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
-	//reqLogger.Info("Reconciling BareMetalHost")
-
+	logrus.Infof("Reconciling BMH: %s", request.NamespacedName)
 	// Fetch the BareMetalHost instance
 	bmh := &bmh_v1alpha1.BareMetalHost{}
 	err := r.client.Get(context.TODO(), request.NamespacedName, bmh)
@@ -138,12 +124,15 @@ func (r *ReconcileBareMetalHost) Reconcile(request reconcile.Request) (reconcile
 
 	if r.newBMH(bmh, hosts) {
 		logrus.Infof("Detected new BMH creation")
-		r.triggerISOCreation()
+		err = r.triggerISOCreation()
+		if err != nil {
+			logrus.Infof("Failed to create ISO for booting the node, error %s", err)
+			return reconcile.Result{}, err
+		}
 	} else {
 		logrus.Infof("Already known BMH host, currently do nothing")
 	}
 
-	logrus.Infof("Reconciling BMH: %s, num hosts %d", request.NamespacedName, len(hosts))
 	return reconcile.Result{}, nil
 }
 
@@ -191,5 +180,6 @@ func (r *ReconcileBareMetalHost) ipInHost(ip string, host *models.Host) bool {
 	return false
 }
 
-func (r *ReconcileBareMetalHost) triggerISOCreation() {
+func (r *ReconcileBareMetalHost) triggerISOCreation() error {
+	return r.ocpClusterAPI.GenerateOCPClusterISO()
 }

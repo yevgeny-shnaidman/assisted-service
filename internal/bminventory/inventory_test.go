@@ -300,7 +300,8 @@ var _ = Describe("GenerateClusterISO", func() {
 				ClusterID:         *clusterId,
 				ImageCreateParams: &models.ImageCreateParams{},
 			})
-			verifyApiError(generateReply, http.StatusInternalServerError)
+			Expect(generateReply).Should(BeAssignableToTypeOf(installer.NewGenerateClusterISOInternalServerError()))
+			// verifyApiError(generateReply, http.StatusInternalServerError)
 		})
 	}
 
@@ -339,9 +340,7 @@ var _ = Describe("IgnitionParameters", func() {
 
 			bm.authHandler.EnableAuth = true
 
-			_, err := bm.formatIgnitionFile(&clusterWithoutToken, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			_, err := bm.formatIgnitionFile(&clusterWithoutToken, "", log, false)
 
 			Expect(err).ShouldNot(BeNil())
 		})
@@ -349,9 +348,7 @@ var _ = Describe("IgnitionParameters", func() {
 		It("ignition_file_contains_pull_secret_token", func() {
 			bm.authHandler.EnableAuth = true
 
-			text, err := bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			text, err := bm.formatIgnitionFile(&cluster, "", log, false)
 
 			Expect(err).Should(BeNil())
 			Expect(text).Should(ContainSubstring("PULL_SECRET_TOKEN"))
@@ -359,9 +356,7 @@ var _ = Describe("IgnitionParameters", func() {
 
 		It("auth_disabled_no_pull_secret_token", func() {
 			bm.authHandler.EnableAuth = false
-			text, err := bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			text, err := bm.formatIgnitionFile(&cluster, "", log, false)
 
 			Expect(err).Should(BeNil())
 			Expect(text).ShouldNot(ContainSubstring("PULL_SECRET_TOKEN"))
@@ -369,9 +364,7 @@ var _ = Describe("IgnitionParameters", func() {
 
 		It("ignition_file_contains_url", func() {
 			bm.ServiceBaseURL = "file://10.56.20.70:7878"
-			text, err := bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			text, err := bm.formatIgnitionFile(&cluster, "", log, false)
 
 			Expect(err).Should(BeNil())
 			Expect(text).Should(ContainSubstring(fmt.Sprintf("--url %s", bm.ServiceBaseURL)))
@@ -379,9 +372,7 @@ var _ = Describe("IgnitionParameters", func() {
 
 		It("ignition_file_safe_for_logging", func() {
 			bm.ServiceBaseURL = "file://10.56.20.70:7878"
-			text, err := bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, true)
+			text, err := bm.formatIgnitionFile(&cluster, "", log, true)
 
 			Expect(err).Should(BeNil())
 			Expect(text).ShouldNot(ContainSubstring("cloud.openshift.com"))
@@ -390,9 +381,7 @@ var _ = Describe("IgnitionParameters", func() {
 
 		It("enabled_cert_verification", func() {
 			bm.SkipCertVerification = false
-			text, err := bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			text, err := bm.formatIgnitionFile(&cluster, "", log, false)
 
 			Expect(err).Should(BeNil())
 			Expect(text).Should(ContainSubstring("--insecure=false"))
@@ -400,18 +389,14 @@ var _ = Describe("IgnitionParameters", func() {
 
 		It("disabled_cert_verification", func() {
 			bm.SkipCertVerification = true
-			text, err := bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			text, err := bm.formatIgnitionFile(&cluster, "", log, false)
 
 			Expect(err).Should(BeNil())
 			Expect(text).Should(ContainSubstring("--insecure=true"))
 		})
 
 		It("cert_verification_enabled_by_default", func() {
-			text, err := bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			text, err := bm.formatIgnitionFile(&cluster, "", log, false)
 
 			Expect(err).Should(BeNil())
 			Expect(text).Should(ContainSubstring("--insecure=false"))
@@ -421,18 +406,14 @@ var _ = Describe("IgnitionParameters", func() {
 			bm.ServiceBaseURL = "file://10.56.20.70:7878"
 			cluster.HTTPProxy = "http://10.10.1.1:3128"
 			cluster.NoProxy = "quay.io"
-			text, err := bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			text, err := bm.formatIgnitionFile(&cluster, "", log, false)
 
 			Expect(err).Should(BeNil())
 			Expect(text).Should(ContainSubstring(`"proxy": { "httpProxy": "http://10.10.1.1:3128", "noProxy": ["quay.io"] }`))
 		})
 
 		It("produces a valid ignition v3.1 spec by default", func() {
-			text, err := bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			text, err := bm.formatIgnitionFile(&cluster, "", log, false)
 			Expect(err).NotTo(HaveOccurred())
 			config, report, err := ign_3_1.Parse([]byte(text))
 			Expect(err).NotTo(HaveOccurred())
@@ -441,9 +422,7 @@ var _ = Describe("IgnitionParameters", func() {
 		})
 
 		It("produces a valid ignition v3.1 spec with overrides", func() {
-			text, err := bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			text, err := bm.formatIgnitionFile(&cluster, "", log, false)
 			Expect(err).NotTo(HaveOccurred())
 
 			config, report, err := ign_3_1.Parse([]byte(text))
@@ -452,9 +431,7 @@ var _ = Describe("IgnitionParameters", func() {
 			orig_files := len(config.Storage.Files)
 
 			cluster.IgnitionConfigOverrides = `{"ignition": {"version": "3.1.0"}, "storage": {"files": [{"path": "/tmp/example", "contents": {"source": "data:text/plain;base64,aGVscGltdHJhcHBlZGluYXN3YWdnZXJzcGVj"}}]}}`
-			text, err = bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			text, err = bm.formatIgnitionFile(&cluster, "", log, false)
 			Expect(err).NotTo(HaveOccurred())
 
 			config, report, err = ign_3_1.Parse([]byte(text))
@@ -465,9 +442,7 @@ var _ = Describe("IgnitionParameters", func() {
 
 		It("fails when given overrides with an incompatible version", func() {
 			cluster.IgnitionConfigOverrides = `{"ignition": {"version": "2.2.0"}, "storage": {"files": [{"path": "/tmp/example", "contents": {"source": "data:text/plain;base64,aGVscGltdHJhcHBlZGluYXN3YWdnZXJzcGVj"}}]}}`
-			_, err := bm.formatIgnitionFile(&cluster, installer.GenerateClusterISOParams{
-				ImageCreateParams: &models.ImageCreateParams{},
-			}, log, false)
+			_, err := bm.formatIgnitionFile(&cluster, "", log, false)
 			Expect(err).To(HaveOccurred())
 		})
 	}

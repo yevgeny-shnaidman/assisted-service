@@ -241,6 +241,7 @@ const nodeIgnitionFormat = `{
 type OCPClusterAPI interface {
 	RegisterOCPCluster(ctx context.Context) error
 	GetOCPClusterHosts() ([]*models.Host, error)
+	GenerateOCPClusterISO() error
 }
 
 type bareMetalInventory struct {
@@ -305,7 +306,7 @@ func (b *bareMetalInventory) updatePullSecret(pullSecret string, log logrus.Fiel
 	return pullSecret, nil
 }
 
-func (b *bareMetalInventory) formatIgnitionFile(cluster *common.Cluster, params installer.GenerateClusterISOParams, logger logrus.FieldLogger, safeForLogs bool) (string, error) {
+func (b *bareMetalInventory) formatIgnitionFile(cluster *common.Cluster, sshPublicKey string, logger logrus.FieldLogger, safeForLogs bool) (string, error) {
 	creds, err := validations.ParsePullSecret(cluster.PullSecret)
 	if err != nil {
 		return "", err
@@ -328,7 +329,7 @@ func (b *bareMetalInventory) formatIgnitionFile(cluster *common.Cluster, params 
 		rhCa = url.PathEscape(redhatRootCA)
 	}
 	var ignitionParams = map[string]string{
-		"userSshKey":           b.getUserSshKey(params),
+		"userSshKey":           b.getUserSshKey(sshPublicKey),
 		"AgentDockerImg":       b.AgentDockerImg,
 		"ServiceBaseURL":       strings.TrimSpace(b.ServiceBaseURL),
 		"clusterId":            cluster.ID.String(),
@@ -382,8 +383,7 @@ func (b *bareMetalInventory) formatIgnitionFile(cluster *common.Cluster, params 
 	return res, nil
 }
 
-func (b *bareMetalInventory) getUserSshKey(params installer.GenerateClusterISOParams) string {
-	sshKey := params.ImageCreateParams.SSHPublicKey
+func (b *bareMetalInventory) getUserSshKey(sshKey string) string {
 	if sshKey == "" {
 		return ""
 	}
@@ -402,9 +402,9 @@ func (b *bareMetalInventory) GetDiscoveryIgnition(ctx context.Context, params in
 	if err != nil {
 		return common.GenerateErrorResponder(err)
 	}
-	isoParams := installer.GenerateClusterISOParams{ClusterID: params.ClusterID, ImageCreateParams: &models.ImageCreateParams{}}
+	// isoParams := installer.GenerateClusterISOParams{ClusterID: params.ClusterID, ImageCreateParams: &models.ImageCreateParams{}}
 
-	cfg, err := b.formatIgnitionFile(c, isoParams, log, false)
+	cfg, err := b.formatIgnitionFile(c, "", log, false)
 	if err != nil {
 		log.WithError(err).Error("Failed to format ignition config")
 		return common.GenerateErrorResponder(err)
@@ -750,8 +750,28 @@ func (b *bareMetalInventory) updateImageInfoPostUpload(ctx context.Context, clus
 }
 
 func (b *bareMetalInventory) GenerateClusterISO(ctx context.Context, params installer.GenerateClusterISOParams) middleware.Responder {
+	httpStatus, cluster, err := b.GenerateClusterISOWithParams(ctx, params.ClusterID, params.ImageCreateParams.SSHPublicKey)
+	switch httpStatus {
+	case http.StatusInternalServerError:
+		return installer.NewGenerateClusterISOInternalServerError().
+			WithPayload(common.GenerateError(http.StatusInternalServerError, err))
+	case http.StatusNotFound:
+		return installer.NewGenerateClusterISONotFound().
+			WithPayload(common.GenerateError(http.StatusNotFound, err))
+	case http.StatusConflict:
+		return installer.NewGenerateClusterISOConflict().
+			WithPayload(common.GenerateError(http.StatusConflict, err))
+	case http.StatusBadRequest:
+		return installer.NewGenerateClusterISOBadRequest().
+			WithPayload(common.GenerateError(http.StatusBadRequest, err))
+	default:
+		return installer.NewGenerateClusterISOCreated().WithPayload(cluster)
+	}
+}
+
+func (b *bareMetalInventory) GenerateClusterISOWithParams(ctx context.Context, clusterID strfmt.UUID, sshPublicKey string) (int, *models.Cluster, error) {
 	log := logutil.FromContext(ctx, b.log)
-	log.Infof("prepare image for cluster %s", params.ClusterID)
+	log.Infof("prepare image for cluster %s", clusterID)
 	var cluster common.Cluster
 
 	txSuccess := false
@@ -769,16 +789,18 @@ func (b *bareMetalInventory) GenerateClusterISO(ctx context.Context, params inst
 
 	if tx.Error != nil {
 		msg := "Failed to generate image: error starting DB transaction"
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, msg, time.Now())
+		b.eventsHandler.AddEvent(ctx, clusterID, nil, models.EventSeverityError, msg, time.Now())
 		log.WithError(tx.Error).Errorf("failed to start db transaction")
-		return installer.NewInstallClusterInternalServerError().
-			WithPayload(common.GenerateError(http.StatusInternalServerError, errors.New("DB error, failed to start transaction")))
+		return http.StatusInternalServerError, nil, errors.New("DB error, failed to start transaction")
+		//return installer.NewInstallClusterInternalServerError().
+		//	WithPayload(common.GenerateError(http.StatusInternalServerError, errors.New("DB error, failed to start transaction")))
 	}
 
-	if err := tx.First(&cluster, "id = ?", params.ClusterID).Error; err != nil {
-		log.WithError(err).Errorf("failed to get cluster: %s", params.ClusterID)
-		return installer.NewGenerateClusterISONotFound().
-			WithPayload(common.GenerateError(http.StatusNotFound, err))
+	if err := tx.First(&cluster, "id = ?", clusterID).Error; err != nil {
+		log.WithError(err).Errorf("failed to get cluster: %s", clusterID)
+		return http.StatusNotFound, nil, err
+		//return installer.NewGenerateClusterISONotFound().
+		//	WithPayload(common.GenerateError(http.StatusNotFound, err))
 	}
 
 	/* We need to ensure that the metadata in the DB matches the image that will be uploaded to S3,
@@ -790,16 +812,18 @@ func (b *bareMetalInventory) GenerateClusterISO(ctx context.Context, params inst
 	if previousCreatedAt.Add(10 * time.Second).After(now) {
 		log.Error("request came too soon after previous request")
 		msg := "Failed to generate image: another request to generate an image has been recently submitted - please wait a few seconds and try again"
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, msg, time.Now())
-		return installer.NewGenerateClusterISOConflict().WithPayload(common.GenerateError(http.StatusConflict,
-			errors.New("Another request to generate an image has been recently submitted. Please wait a few seconds and try again.")))
+		b.eventsHandler.AddEvent(ctx, clusterID, nil, models.EventSeverityError, msg, time.Now())
+		return http.StatusConflict, nil, errors.New("Another request to generate an image has been recently submitted. Please wait a few seconds and try again.")
+		//return installer.NewGenerateClusterISOConflict().WithPayload(common.GenerateError(http.StatusConflict,
+		//	errors.New("Another request to generate an image has been recently submitted. Please wait a few seconds and try again.")))
 	}
 
 	if !cluster.PullSecretSet {
 		errMsg := "Can't generate cluster ISO without pull secret"
 		log.Error(errMsg)
-		return installer.NewGenerateClusterISOBadRequest().
-			WithPayload(common.GenerateError(http.StatusBadRequest, errors.New(errMsg)))
+		return http.StatusBadRequest, nil, errors.New(errMsg)
+		//return installer.NewGenerateClusterISOBadRequest().
+		//	WithPayload(common.GenerateError(http.StatusBadRequest, errors.New(errMsg)))
 	}
 
 	/* If the request has the same parameters as the previous request and the image is still in S3,
@@ -808,91 +832,102 @@ func (b *bareMetalInventory) GenerateClusterISO(ctx context.Context, params inst
 	clusterProxyHash, err := computeClusterProxyHash(&cluster.HTTPProxy, &cluster.HTTPSProxy, &cluster.NoProxy)
 	if err != nil {
 		log.Error("Failed to compute cluster proxy hash", err)
-		return installer.NewGenerateClusterISOInternalServerError()
+		return http.StatusInternalServerError, nil, err
+		// return installer.NewGenerateClusterISOInternalServerError()
 	}
 
 	var imageExists bool
-	if cluster.ImageInfo.SSHPublicKey == params.ImageCreateParams.SSHPublicKey &&
+	if cluster.ImageInfo.SSHPublicKey == sshPublicKey &&
 		cluster.ImageInfo.GeneratorVersion == b.Config.ImageBuilder &&
 		cluster.ProxyHash == clusterProxyHash {
 		var err error
-		imgName := getImageName(params.ClusterID)
+		imgName := getImageName(clusterID)
 		imageExists, err = b.objectHandler.UpdateObjectTimestamp(ctx, imgName)
 		if err != nil {
 			log.WithError(err).Errorf("failed to contact storage backend")
-			b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError,
+			b.eventsHandler.AddEvent(ctx, clusterID, nil, models.EventSeverityError,
 				"Failed to generate image: error contacting storage backend", time.Now())
-			return installer.NewInstallClusterInternalServerError().
-				WithPayload(common.GenerateError(http.StatusInternalServerError, errors.New("failed to contact storage backend")))
+			return http.StatusInternalServerError, nil, errors.New("failed to contact storage backend")
+			//return installer.NewInstallClusterInternalServerError().
+			//	WithPayload(common.GenerateError(http.StatusInternalServerError, errors.New("failed to contact storage backend")))
 		}
 	}
 
 	updates := map[string]interface{}{}
-	updates["image_ssh_public_key"] = params.ImageCreateParams.SSHPublicKey
+	updates["image_ssh_public_key"] = sshPublicKey
 	updates["image_created_at"] = strfmt.DateTime(now)
 	updates["image_expires_at"] = strfmt.DateTime(now.Add(b.Config.ImageExpirationTime))
 	updates["image_generator_version"] = b.Config.ImageBuilder
 	updates["image_download_url"] = ""
 	dbReply := tx.Model(&common.Cluster{}).Where("id = ?", cluster.ID.String()).Updates(updates)
 	if dbReply.Error != nil {
-		log.WithError(dbReply.Error).Errorf("failed to update cluster: %s", params.ClusterID)
+		log.WithError(dbReply.Error).Errorf("failed to update cluster: %s", clusterID)
 		msg := "Failed to generate image: error updating metadata"
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, msg, time.Now())
-		return installer.NewGenerateClusterISOInternalServerError()
+		b.eventsHandler.AddEvent(ctx, clusterID, nil, models.EventSeverityError, msg, time.Now())
+		return http.StatusInternalServerError, nil, errors.New("Failed to update the cluster in DB")
+		//return installer.NewGenerateClusterISOInternalServerError()
 	}
 
 	if err := tx.Commit().Error; err != nil {
 		log.Error(err)
 		msg := "Failed to generate image: error committing the transaction"
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, msg, time.Now())
-		return installer.NewGenerateClusterISOInternalServerError()
+		b.eventsHandler.AddEvent(ctx, clusterID, nil, models.EventSeverityError, msg, time.Now())
+		return http.StatusInternalServerError, nil, errors.New("Failed to commit the updated cluster in DB")
+		// return installer.NewGenerateClusterISOInternalServerError()
 	}
 	txSuccess = true
-	if err := b.db.Preload("Hosts").First(&cluster, "id = ?", params.ClusterID).Error; err != nil {
-		log.WithError(err).Errorf("failed to get cluster %s after update", params.ClusterID)
+	if err := b.db.Preload("Hosts").First(&cluster, "id = ?", clusterID).Error; err != nil {
+		log.WithError(err).Errorf("failed to get cluster %s after update", clusterID)
 		msg := "Failed to generate image: error fetching updated cluster metadata"
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, msg, time.Now())
-		return installer.NewUpdateClusterInternalServerError().
-			WithPayload(common.GenerateError(http.StatusInternalServerError, err))
+		b.eventsHandler.AddEvent(ctx, clusterID, nil, models.EventSeverityError, msg, time.Now())
+		return http.StatusInternalServerError, nil, err
+		//return installer.NewUpdateClusterInternalServerError().
+		//	WithPayload(common.GenerateError(http.StatusInternalServerError, err))
 	}
 
 	if imageExists {
 		if err := b.updateImageInfoPostUpload(ctx, &cluster, clusterProxyHash); err != nil {
-			return installer.NewGenerateClusterISOInternalServerError().
-				WithPayload(common.GenerateError(http.StatusInternalServerError, err))
+			return http.StatusInternalServerError, nil, err
+			//return installer.NewGenerateClusterISOInternalServerError().
+			//	WithPayload(common.GenerateError(http.StatusInternalServerError, err))
 		}
 
-		log.Infof("Re-used existing cluster <%s> image", params.ClusterID)
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityInfo, "Re-used existing image rather than generating a new one", time.Now())
-		return installer.NewGenerateClusterISOCreated().WithPayload(&cluster.Cluster)
+		log.Infof("Re-used existing cluster <%s> image", clusterID)
+		b.eventsHandler.AddEvent(ctx, clusterID, nil, models.EventSeverityInfo, "Re-used existing image rather than generating a new one", time.Now())
+		return http.StatusOK, &cluster.Cluster, nil
+		//return installer.NewGenerateClusterISOCreated().WithPayload(&cluster.Cluster)
 	}
-	ignitionConfig, formatErr := b.formatIgnitionFile(&cluster, params, log, false)
+	ignitionConfig, formatErr := b.formatIgnitionFile(&cluster, sshPublicKey, log, false)
 	if formatErr != nil {
 		log.WithError(formatErr).Errorf("failed to format ignition config file for cluster %s", cluster.ID)
 		msg := "Failed to generate image: error formatting ignition file"
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, msg, time.Now())
-		return installer.NewGenerateClusterISOInternalServerError().
-			WithPayload(common.GenerateError(http.StatusInternalServerError, formatErr))
+		b.eventsHandler.AddEvent(ctx, clusterID, nil, models.EventSeverityError, msg, time.Now())
+		return http.StatusInternalServerError, nil, formatErr
+		// return installer.NewGenerateClusterISOInternalServerError().
+		//	WithPayload(common.GenerateError(http.StatusInternalServerError, formatErr))
 	}
 
 	if err := b.objectHandler.Upload(ctx, []byte(ignitionConfig), fmt.Sprintf("%s/discovery.ign", cluster.ID)); err != nil {
 		log.WithError(err).Errorf("Upload discovery ignition failed for cluster %s", cluster.ID)
-		return common.NewApiError(http.StatusInternalServerError, err)
+		return http.StatusInternalServerError, nil, err
+		//return common.NewApiError(http.StatusInternalServerError, err)
 	}
 
 	if err := b.objectHandler.UploadISO(ctx, ignitionConfig, fmt.Sprintf("discovery-image-%s", cluster.ID.String())); err != nil {
 		log.WithError(err).Errorf("Upload ISO failed for cluster %s", cluster.ID)
-		b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityError, "Failed to upload image", time.Now())
-		return installer.NewGenerateClusterISOInternalServerError().WithPayload(common.GenerateError(http.StatusInternalServerError, err))
+		b.eventsHandler.AddEvent(ctx, clusterID, nil, models.EventSeverityError, "Failed to upload image", time.Now())
+		return http.StatusInternalServerError, nil, err
+		// return installer.NewGenerateClusterISOInternalServerError().WithPayload(common.GenerateError(http.StatusInternalServerError, err))
 	}
 
 	if err := b.updateImageInfoPostUpload(ctx, &cluster, clusterProxyHash); err != nil {
-		return installer.NewGenerateClusterISOInternalServerError().
-			WithPayload(common.GenerateError(http.StatusInternalServerError, err))
+		return http.StatusInternalServerError, nil, err
+		//return installer.NewGenerateClusterISOInternalServerError().
+		//	WithPayload(common.GenerateError(http.StatusInternalServerError, err))
 	}
 
-	ignitionConfigForLogging, _ := b.formatIgnitionFile(&cluster, params, log, true)
-	log.Infof("Generated cluster <%s> image with ignition config %s", params.ClusterID, ignitionConfigForLogging)
+	ignitionConfigForLogging, _ := b.formatIgnitionFile(&cluster, sshPublicKey, log, true)
+	log.Infof("Generated cluster <%s> image with ignition config %s", clusterID, ignitionConfigForLogging)
 
 	msg := "Generated image"
 
@@ -903,7 +938,7 @@ func (b *bareMetalInventory) GenerateClusterISO(ctx context.Context, params inst
 	}
 
 	sshExtra := "SSH public key is not set"
-	if params.ImageCreateParams.SSHPublicKey != "" {
+	if sshPublicKey != "" {
 		sshExtra = "SSH public key is set"
 	}
 
@@ -911,8 +946,9 @@ func (b *bareMetalInventory) GenerateClusterISO(ctx context.Context, params inst
 
 	msg = fmt.Sprintf("%s (%s)", msg, strings.Join(msgExtras, ", "))
 
-	b.eventsHandler.AddEvent(ctx, params.ClusterID, nil, models.EventSeverityInfo, msg, time.Now())
-	return installer.NewGenerateClusterISOCreated().WithPayload(&cluster.Cluster)
+	b.eventsHandler.AddEvent(ctx, clusterID, nil, models.EventSeverityInfo, msg, time.Now())
+	return http.StatusOK, &cluster.Cluster, nil
+	//return installer.NewGenerateClusterISOCreated().WithPayload(&cluster.Cluster)
 }
 
 func getImageName(clusterID strfmt.UUID) string {
@@ -3889,4 +3925,14 @@ func (b *bareMetalInventory) GetOCPClusterHosts() ([]*models.Host, error) {
 		return nil, err
 	}
 	return cluster.Hosts, nil
+}
+
+func (b *bareMetalInventory) GenerateOCPClusterISO() error {
+	var cluster common.Cluster
+	if err := b.db.Preload("Hosts").First(&cluster, "kind = ?", models.ClusterKindAddHostsOCPCluster).Error; err != nil {
+		return err
+	}
+
+	_, _, err := b.GenerateClusterISOWithParams(context.Background(), *cluster.ID, cluster.SSHPublicKey)
+	return err
 }
