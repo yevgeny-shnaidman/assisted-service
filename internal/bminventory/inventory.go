@@ -242,6 +242,8 @@ type OCPClusterAPI interface {
 	RegisterOCPCluster(ctx context.Context) error
 	GetOCPClusterHosts() ([]*models.Host, error)
 	GenerateOCPClusterISO() error
+	GetISOHttpURL() (string, error)
+	InstallOCPHost(h *models.Host) error
 }
 
 type bareMetalInventory struct {
@@ -3080,64 +3082,87 @@ func (b *bareMetalInventory) ResetCluster(ctx context.Context, params installer.
 }
 
 func (b *bareMetalInventory) InstallHost(ctx context.Context, params installer.InstallHostParams) middleware.Responder {
+	httpStatus, h, err := b.InstallHostWithParams(ctx, params.ClusterID, params.HostID)
+	if httpStatus != http.StatusAccepted {
+		return common.NewApiError(httpStatus, err)
+	}
+
+	return installer.NewInstallHostAccepted().WithPayload(h)
+}
+
+func (b *bareMetalInventory) InstallOCPHost(h *models.Host) error {
+	_, _, err := b.InstallHostWithParams(context.TODO(), h.ClusterID, *h.ID)
+	return err
+}
+
+func (b *bareMetalInventory) InstallHostWithParams(ctx context.Context, clusterID, hostID strfmt.UUID) (int32, *models.Host, error) {
 	log := logutil.FromContext(ctx, b.log)
 	var h *models.Host
 	var cluster common.Cluster
 
-	log.Info("Install single day2 host: ", params.HostID)
-	err := b.db.Preload("Hosts").First(&cluster, "id = ?", params.ClusterID).Error
+	log.Info("Install single day2 host: ", hostID)
+	err := b.db.Preload("Hosts").First(&cluster, "id = ?", clusterID).Error
 	if err != nil {
-		return common.GenerateErrorResponder(err)
+		//return common.GenerateErrorResponder(err)
+		return http.StatusInternalServerError, nil, err
 	}
 	for i := range cluster.Hosts {
-		if *cluster.Hosts[i].ID == params.HostID {
+		if *cluster.Hosts[i].ID == hostID {
 			h = cluster.Hosts[i]
 			break
 		}
 	}
 	if h == nil {
-		log.WithError(err).Errorf("host %s not found", params.HostID)
-		return common.NewApiError(http.StatusNotFound, err)
+		log.WithError(err).Errorf("host %s not found", hostID)
+		// return common.NewApiError(http.StatusNotFound, err)
+		return http.StatusNotFound, nil, err
 	}
 
 	if !host.IsDay2Host(h) {
-		log.Errorf("InstallHost for host %s is forbidden: not a Day2 hosts", params.HostID.String())
-		return common.NewApiError(http.StatusConflict, fmt.Errorf("Method only allowed when adding hosts to an existing cluster"))
+		log.Errorf("InstallHost for host %s is forbidden: not a Day2 hosts", hostID.String())
+		// return common.NewApiError(http.StatusConflict, fmt.Errorf("Method only allowed when adding hosts to an existing cluster"))
+		return http.StatusConflict, nil, fmt.Errorf("Method only allowed when adding hosts to an existing cluster")
 	}
 
 	if swag.StringValue(h.Status) != models.HostStatusKnown {
-		log.Errorf("Install host for host %s, state %s is forbidden: host not in Known state", params.HostID.String(), swag.StringValue(h.Status))
-		return common.NewApiError(http.StatusConflict, fmt.Errorf("Cannot install host in state %s", swag.StringValue(h.Status)))
+		log.Errorf("Install host for host %s, state %s is forbidden: host not in Known state", hostID.String(), swag.StringValue(h.Status))
+		// return common.NewApiError(http.StatusConflict, fmt.Errorf("Cannot install host in state %s", swag.StringValue(h.Status)))
+		return http.StatusConflict, nil, fmt.Errorf("Cannot install host in state %s", swag.StringValue(h.Status))
 	}
 
 	err = b.hostApi.AutoAssignRole(ctx, h, b.db)
 	if err != nil {
-		log.Errorf("Failed to update role for host %s", params.HostID)
-		return common.GenerateErrorResponder(err)
+		log.Errorf("Failed to update role for host %s", hostID)
+		//return common.GenerateErrorResponder(err)
+		return http.StatusInternalServerError, nil, err
 	}
 
 	err = b.hostApi.RefreshStatus(ctx, h, b.db)
 	if err != nil {
-		log.Errorf("Failed to refresh host %s", params.HostID)
-		return common.GenerateErrorResponder(err)
+		log.Errorf("Failed to refresh host %s", hostID)
+		//return common.GenerateErrorResponder(err)
+		return http.StatusInternalServerError, nil, err
 	}
 
 	if swag.StringValue(h.Status) != models.HostStatusKnown {
-		return common.NewApiError(http.StatusConflict, fmt.Errorf("Cannot install host in state %s after refresh", swag.StringValue(h.Status)))
+		//return common.NewApiError(http.StatusConflict, fmt.Errorf("Cannot install host in state %s after refresh", swag.StringValue(h.Status)))
+		return http.StatusConflict, nil, fmt.Errorf("Cannot install host in state %s after refresh", swag.StringValue(h.Status))
 	}
 	err = b.createAndUploadNodeIgnition(ctx, &cluster, h)
 	if err != nil {
 		log.Error("Failed to upload ignition for host %s", h.RequestedHostname)
-		return common.GenerateErrorResponder(err)
+		return http.StatusInternalServerError, nil, err
+		//return common.GenerateErrorResponder(err)
 	}
 	err = b.hostApi.Install(ctx, h, b.db)
 	if err != nil {
 		// we just logs the error, each host install is independent
 		log.Error("Failed to move host %s to installing", h.RequestedHostname)
-		return common.GenerateErrorResponder(err)
+		//return common.GenerateErrorResponder(err)
+		return http.StatusInternalServerError, nil, err
 	}
-
-	return installer.NewInstallHostAccepted().WithPayload(h)
+	return http.StatusAccepted, h, nil
+	// return installer.NewInstallHostAccepted().WithPayload(h)
 }
 
 func (b *bareMetalInventory) ResetHost(ctx context.Context, params installer.ResetHostParams) middleware.Responder {
@@ -3935,4 +3960,15 @@ func (b *bareMetalInventory) GenerateOCPClusterISO() error {
 
 	_, _, err := b.GenerateClusterISOWithParams(context.Background(), *cluster.ID, cluster.SSHPublicKey)
 	return err
+}
+
+func (b *bareMetalInventory) GetISOHttpURL() (string, error) {
+	var cluster common.Cluster
+	var err error
+
+	if err = b.db.First(&cluster, "kind = ?", models.ClusterKindAddHostsOCPCluster).Error; err != nil {
+		return "", err
+	}
+	url := installer.GetClusterURL{ClusterID: *cluster.ID}
+	return strings.Join([]string{url.String(), "downloads/image"}, "/"), nil
 }

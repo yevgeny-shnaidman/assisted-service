@@ -3,61 +3,37 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	bmh_v1alpha1 "github.com/metal3-io/baremetal-operator/pkg/apis/metal3/v1alpha1"
 	"github.com/openshift/assisted-service/internal/bminventory"
 	"github.com/openshift/assisted-service/models"
 
-	// cachev1alpha1 "github.com/example-inc/memcached-operator/pkg/apis/cache/v1alpha1"
-	// corev1 "k8s.io/api/core/v1"
+	"github.com/go-openapi/swag"
 	"k8s.io/apimachinery/pkg/api/errors"
-	// metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	// "k8s.io/apimachinery/pkg/types"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	// "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logrus "github.com/sirupsen/logrus"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
-	//logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"github.com/thoas/go-funk"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
-/*
-var log = logf.Log.WithName("controller_baremetalhost")
-
-func init() {
-	logrus.Infof("YEV init function of controller")
-	// AddToManagerFuncs is a list of functions to create controllers and add them to a manager.
-	AddToManagerFuncs = append(AddToManagerFuncs, Add)
+var discoveryStatuses = []string{models.HostStatusDiscovering,
+	models.HostStatusInsufficient,
+	models.HostStatusDisconnected,
+	models.HostStatusPendingForInput,
 }
-
-// AddToManagerFuncs is a list of functions to add all Controllers to the Manager
-var AddToManagerFuncs []func(manager.Manager) error
-
-// AddToManager adds all Controllers to the Manager
-func AddToManager(m manager.Manager) error {
-	logrus.Infof("YEV add to manager")
-	for _, f := range AddToManagerFuncs {
-		if err := f(m); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Add creates a new BareMetalHost Controller and adds it to the Manager. The Manager will set fields on the Controller
-// and Start it when the Manager is Started.
-func Add(mgr manager.Manager) error {
-	return add(mgr, newReconciler(mgr))
-}
-*/
 
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager, ocpClusterAPI bminventory.OCPClusterAPI) reconcile.Reconciler {
@@ -68,18 +44,40 @@ func AddWithBMInventory(mgr manager.Manager, ocpClusterAPI bminventory.OCPCluste
 	return addBMHController(mgr, newReconciler(mgr, ocpClusterAPI))
 }
 
+func isAssistedinstallerBMH(meta metav1.Object) bool {
+	labels := meta.GetLabels()
+	if _, found := labels["assisted-installer-bmh"]; found {
+		return true
+	}
+	return false
+}
+
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
 func addBMHController(mgr manager.Manager, r reconcile.Reconciler) error {
-	logrus.Infof("YEV - Start add")
 	// Create a new controller
 	c, err := controller.New("baremetalhost-controller", mgr, controller.Options{Reconciler: r})
 	if err != nil {
 		return err
 	}
 
+	filterPredicate := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return isAssistedinstallerBMH(e.Meta)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return isAssistedinstallerBMH(e.Meta)
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return isAssistedinstallerBMH(e.MetaNew)
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return isAssistedinstallerBMH(e.Meta)
+		},
+	}
+
 	logrus.Info("Start watch")
 	// Watch for changes to primary resource BareMetalHost
-	err = c.Watch(&source.Kind{Type: &bmh_v1alpha1.BareMetalHost{}}, &handler.EnqueueRequestForObject{})
+	err = c.Watch(&source.Kind{Type: &bmh_v1alpha1.BareMetalHost{}}, &handler.EnqueueRequestForObject{}, filterPredicate)
 	if err != nil {
 		return err
 	}
@@ -116,68 +114,101 @@ func (r *ReconcileBareMetalHost) Reconcile(request reconcile.Request) (reconcile
 		return reconcile.Result{}, err
 	}
 
-	hosts, err := r.ocpClusterAPI.GetOCPClusterHosts()
-	if err != nil {
-		logrus.Warnf("Failed to get hosts from AI cluster, err %s", err)
-		return reconcile.Result{}, err
-	}
-
-	if r.newBMH(bmh, hosts) {
+	if r.isNewBMH(bmh) {
 		logrus.Infof("Detected new BMH creation")
 		err = r.triggerISOCreation()
 		if err != nil {
-			logrus.Infof("Failed to create ISO for booting the node, error %s", err)
+			logrus.Errorf("Failed to create ISO for booting the node, error %s", err)
+			return reconcile.Result{}, err
+		}
+		err = r.setISOUrl(bmh)
+		if err != nil {
+			logrus.Errorf("Failed to set create ISO url in the BMH, error %s", err)
 			return reconcile.Result{}, err
 		}
 	} else {
-		logrus.Infof("Already known BMH host, currently do nothing")
+		// check if install label was added
+		installFlag, host, err := r.isStartInstall(bmh)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		if !installFlag {
+			return reconcile.Result{}, nil
+		}
+		err = r.startInstallation(host)
+		if err != nil {
+			logrus.Errorf("failed to issue install command for bmh")
+			return reconcile.Result{}, err
+		}
 	}
 
 	return reconcile.Result{}, nil
 }
 
-func (r *ReconcileBareMetalHost) newBMH(bmh *bmh_v1alpha1.BareMetalHost, hosts []*models.Host) bool {
-	if bmh.Status.HardwareDetails == nil ||
-		len(bmh.Status.HardwareDetails.NIC) == 0 {
-		return true
-	}
-	for _, nic := range bmh.Status.HardwareDetails.NIC {
-		if r.ipInHosts(nic.IP, hosts) {
-			return false
-		}
-	}
-	return true
+func (r *ReconcileBareMetalHost) isNewBMH(bmh *bmh_v1alpha1.BareMetalHost) bool {
+	// once new BMH CR is ready , move to LiveImage
+	return bmh.Spec.Image == nil
+	//retur bmh.Spec.LiveImage.Url != nil {
 }
 
-func (r *ReconcileBareMetalHost) ipInHosts(ip string, hosts []*models.Host) bool {
-	for _, host := range hosts {
-		if r.ipInHost(ip, host) {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *ReconcileBareMetalHost) ipInHost(ip string, host *models.Host) bool {
-	inventory := models.Inventory{}
-	err := json.Unmarshal([]byte(host.Inventory), &inventory)
+func (r *ReconcileBareMetalHost) setISOUrl(bmh *bmh_v1alpha1.BareMetalHost) error {
+	url, err := r.ocpClusterAPI.GetISOHttpURL()
 	if err != nil {
-		return false
+		logrus.Errorf("Failed to get discovery ISO url, error %s", err)
+		return err
 	}
-	for _, nic := range inventory.Interfaces {
-		compFunc := func(s string) bool {
-			return strings.Contains(s, ip)
+	// once new BMH CR is ready , move to LiveImage
+	bmh.Spec.Image = &bmh_v1alpha1.Image{URL: url}
+	//bmh.Spec.LiveImage.Url = url
+	err = r.client.Update(context.TODO(), bmh)
+	if err != nil {
+		logrus.Errorf("Failed to update the BMH spec, error %s", err)
+		return err
+	}
+	return nil
+}
+
+func (r *ReconcileBareMetalHost) isStartInstall(bmh *bmh_v1alpha1.BareMetalHost) (bool, *models.Host, error) {
+	labels := bmh.Labels
+	if _, found := labels["assisted-installer-bmh-install"]; !found {
+		return false, nil, nil
+	}
+
+	host, err := r.findBMHHost(bmh)
+	if err != nil || host == nil {
+		logrus.Errorf("Failed to find host for bmh")
+		return false, nil, fmt.Errorf("Failed to find AI host for bmh")
+	}
+	if funk.Contains(discoveryStatuses, swag.StringValue(host.Status)) {
+		return false, nil, fmt.Errorf("host in status %s, need to wait until in status known", swag.StringValue(host.Status))
+	}
+	if swag.StringValue(host.Status) == models.HostStatusKnown {
+		return true, host, nil
+	}
+	return false, nil, nil
+}
+
+func (r *ReconcileBareMetalHost) startInstallation(h *models.Host) error {
+	return r.ocpClusterAPI.InstallOCPHost(h)
+}
+
+func (r *ReconcileBareMetalHost) findBMHHost(bmh *bmh_v1alpha1.BareMetalHost) (*models.Host, error) {
+	hosts, err := r.ocpClusterAPI.GetOCPClusterHosts()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, host := range hosts {
+		inventory := models.Inventory{}
+		err := json.Unmarshal([]byte(host.Inventory), &inventory)
+		if err != nil {
+			continue
 		}
-		_, res := funk.FindString(nic.IPV4Addresses, compFunc)
-		if res {
-			return true
-		}
-		_, res = funk.FindString(nic.IPV6Addresses, compFunc)
-		if res {
-			return true
+		if strings.Contains(bmh.Spec.BMC.Address, inventory.BmcAddress) {
+			return host, nil
 		}
 	}
-	return false
+	return nil, nil
 }
 
 func (r *ReconcileBareMetalHost) triggerISOCreation() error {
