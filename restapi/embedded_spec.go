@@ -6139,37 +6139,53 @@ func init() {
     "static-ip-config": {
       "type": "object",
       "properties": {
-        "dns": {
-          "type": "string"
+        "ipv4_config": {
+          "$ref": "#/definitions/static-ipv4-config"
         },
-        "dns_v6": {
+        "ipv6_config": {
+          "$ref": "#/definitions/static-ipv6-config"
+        },
+        "mac": {
+          "type": "string",
+          "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+        }
+      }
+    },
+    "static-ipv4-config": {
+      "type": "object",
+      "properties": {
+        "dns": {
           "type": "string"
         },
         "gateway": {
           "type": "string",
           "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
         },
-        "gateway_v6": {
+        "ip": {
+          "type": "string",
+          "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
+        },
+        "mask": {
+          "type": "string",
+          "pattern": "^[0-9]|[1-2][0-9]|3[0-2]?$"
+        }
+      }
+    },
+    "static-ipv6-config": {
+      "type": "object",
+      "properties": {
+        "dns": {
+          "type": "string"
+        },
+        "gateway": {
           "type": "string",
           "pattern": "^(?:[0-9a-fA-F]*:[0-9a-fA-F]*){2,}$"
         },
         "ip": {
           "type": "string",
-          "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
-        },
-        "ip_v6": {
-          "type": "string",
           "pattern": "^(?:[0-9a-fA-F]*:[0-9a-fA-F]*){2,}$"
         },
-        "mac": {
-          "type": "string",
-          "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
-        },
         "mask": {
-          "type": "string",
-          "pattern": "^[0-9]|[1-2][0-9]|3[0-2]?$"
-        },
-        "mask_v6": {
           "type": "string",
           "pattern": "^([0-9]|[1-9][0-9]|1[0-1][0-9]|12[0-8])$"
         }
@@ -12520,37 +12536,53 @@ func init() {
     "static-ip-config": {
       "type": "object",
       "properties": {
-        "dns": {
-          "type": "string"
+        "ipv4_config": {
+          "$ref": "#/definitions/static-ipv4-config"
         },
-        "dns_v6": {
+        "ipv6_config": {
+          "$ref": "#/definitions/static-ipv6-config"
+        },
+        "mac": {
+          "type": "string",
+          "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+        }
+      }
+    },
+    "static-ipv4-config": {
+      "type": "object",
+      "properties": {
+        "dns": {
           "type": "string"
         },
         "gateway": {
           "type": "string",
           "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
         },
-        "gateway_v6": {
+        "ip": {
+          "type": "string",
+          "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
+        },
+        "mask": {
+          "type": "string",
+          "pattern": "^[0-9]|[1-2][0-9]|3[0-2]?$"
+        }
+      }
+    },
+    "static-ipv6-config": {
+      "type": "object",
+      "properties": {
+        "dns": {
+          "type": "string"
+        },
+        "gateway": {
           "type": "string",
           "pattern": "^(?:[0-9a-fA-F]*:[0-9a-fA-F]*){2,}$"
         },
         "ip": {
           "type": "string",
-          "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
-        },
-        "ip_v6": {
-          "type": "string",
           "pattern": "^(?:[0-9a-fA-F]*:[0-9a-fA-F]*){2,}$"
         },
-        "mac": {
-          "type": "string",
-          "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
-        },
         "mask": {
-          "type": "string",
-          "pattern": "^[0-9]|[1-2][0-9]|3[0-2]?$"
-        },
-        "mask_v6": {
           "type": "string",
           "pattern": "^([0-9]|[1-9][0-9]|1[0-1][0-9]|12[0-8])$"
         }

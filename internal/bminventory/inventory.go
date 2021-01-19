@@ -4203,16 +4203,30 @@ func formatStaticIPs(staticIpsConfig []*models.StaticIPConfig) string {
 
 	// construct static IPs config string
 	for i, entry := range staticIpsConfig {
-		elements := []string{
-			entry.Mac,
-			entry.IP,
-			entry.Mask,
-			entry.DNS,
-			entry.Gateway,
-			entry.IPV6,
-			entry.MaskV6,
-			entry.DNSV6,
-			entry.GatewayV6}
+		elements := []string{entry.Mac}
+		empty_config := []string{"", "", "", ""}
+		if entry.IPV4Config != nil {
+			elements = append(elements, []string{entry.IPV4Config.IP, entry.IPV4Config.Mask, entry.IPV4Config.DNS, entry.IPV4Config.Gateway}...)
+		} else {
+			elements = append(elements, empty_config...)
+		}
+		if entry.IPV6Config != nil {
+			elements = append(elements, []string{entry.IPV6Config.IP, entry.IPV6Config.Mask, entry.IPV6Config.DNS, entry.IPV6Config.Gateway}...)
+		} else {
+			elements = append(elements, empty_config...)
+		}
+		/*
+			elements := []string{
+				entry.Mac,
+				entry.IP,
+				entry.Mask,
+				entry.DNS,
+				entry.Gateway,
+				entry.IPV6,
+				entry.MaskV6,
+				entry.DNSV6,
+				entry.GatewayV6}
+		*/
 		lines[i] = strings.Join(elements, ";")
 	}
 

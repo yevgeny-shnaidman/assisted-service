@@ -17,70 +17,30 @@ import (
 // swagger:model static-ip-config
 type StaticIPConfig struct {
 
-	// dns
-	DNS string `json:"dns,omitempty"`
+	// ipv4 config
+	IPV4Config *StaticIPV4Config `json:"ipv4_config,omitempty"`
 
-	// dns v6
-	DNSV6 string `json:"dns_v6,omitempty"`
-
-	// gateway
-	// Pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}$
-	Gateway string `json:"gateway,omitempty"`
-
-	// gateway v6
-	// Pattern: ^(?:[0-9a-fA-F]*:[0-9a-fA-F]*){2,}$
-	GatewayV6 string `json:"gateway_v6,omitempty"`
-
-	// ip
-	// Pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}$
-	IP string `json:"ip,omitempty"`
-
-	// ip v6
-	// Pattern: ^(?:[0-9a-fA-F]*:[0-9a-fA-F]*){2,}$
-	IPV6 string `json:"ip_v6,omitempty"`
+	// ipv6 config
+	IPV6Config *StaticIPV6Config `json:"ipv6_config,omitempty"`
 
 	// mac
 	// Pattern: ^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$
 	Mac string `json:"mac,omitempty"`
-
-	// mask
-	// Pattern: ^[0-9]|[1-2][0-9]|3[0-2]?$
-	Mask string `json:"mask,omitempty"`
-
-	// mask v6
-	// Pattern: ^([0-9]|[1-9][0-9]|1[0-1][0-9]|12[0-8])$
-	MaskV6 string `json:"mask_v6,omitempty"`
 }
 
 // Validate validates this static ip config
 func (m *StaticIPConfig) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateGateway(formats); err != nil {
+	if err := m.validateIPV4Config(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateGatewayV6(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateIP(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateIPV6(formats); err != nil {
+	if err := m.validateIPV6Config(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if err := m.validateMac(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateMask(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateMaskV6(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -90,53 +50,37 @@ func (m *StaticIPConfig) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *StaticIPConfig) validateGateway(formats strfmt.Registry) error {
+func (m *StaticIPConfig) validateIPV4Config(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.Gateway) { // not required
+	if swag.IsZero(m.IPV4Config) { // not required
 		return nil
 	}
 
-	if err := validate.Pattern("gateway", "body", string(m.Gateway), `^([0-9]{1,3}\.){3}[0-9]{1,3}$`); err != nil {
-		return err
+	if m.IPV4Config != nil {
+		if err := m.IPV4Config.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("ipv4_config")
+			}
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (m *StaticIPConfig) validateGatewayV6(formats strfmt.Registry) error {
+func (m *StaticIPConfig) validateIPV6Config(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.GatewayV6) { // not required
+	if swag.IsZero(m.IPV6Config) { // not required
 		return nil
 	}
 
-	if err := validate.Pattern("gateway_v6", "body", string(m.GatewayV6), `^(?:[0-9a-fA-F]*:[0-9a-fA-F]*){2,}$`); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *StaticIPConfig) validateIP(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.IP) { // not required
-		return nil
-	}
-
-	if err := validate.Pattern("ip", "body", string(m.IP), `^([0-9]{1,3}\.){3}[0-9]{1,3}$`); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *StaticIPConfig) validateIPV6(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.IPV6) { // not required
-		return nil
-	}
-
-	if err := validate.Pattern("ip_v6", "body", string(m.IPV6), `^(?:[0-9a-fA-F]*:[0-9a-fA-F]*){2,}$`); err != nil {
-		return err
+	if m.IPV6Config != nil {
+		if err := m.IPV6Config.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("ipv6_config")
+			}
+			return err
+		}
 	}
 
 	return nil
@@ -149,32 +93,6 @@ func (m *StaticIPConfig) validateMac(formats strfmt.Registry) error {
 	}
 
 	if err := validate.Pattern("mac", "body", string(m.Mac), `^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$`); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *StaticIPConfig) validateMask(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Mask) { // not required
-		return nil
-	}
-
-	if err := validate.Pattern("mask", "body", string(m.Mask), `^[0-9]|[1-2][0-9]|3[0-2]?$`); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *StaticIPConfig) validateMaskV6(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.MaskV6) { // not required
-		return nil
-	}
-
-	if err := validate.Pattern("mask_v6", "body", string(m.MaskV6), `^([0-9]|[1-9][0-9]|1[0-1][0-9]|12[0-8])$`); err != nil {
 		return err
 	}
 
