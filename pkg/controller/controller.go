@@ -115,7 +115,6 @@ func (r *ReconcileBareMetalHost) Reconcile(request reconcile.Request) (reconcile
 	}
 
 	if r.isNewBMH(bmh) {
-		logrus.Infof("Detected new BMH creation")
 		err = r.triggerISOCreation()
 		if err != nil {
 			logrus.Errorf("Failed to create ISO for booting the node, error %s", err)
@@ -171,6 +170,7 @@ func (r *ReconcileBareMetalHost) setISOUrl(bmh *bmh_v1alpha1.BareMetalHost) erro
 func (r *ReconcileBareMetalHost) isStartInstall(bmh *bmh_v1alpha1.BareMetalHost) (bool, *models.Host, error) {
 	labels := bmh.Labels
 	if _, found := labels["assisted-installer-bmh-install"]; !found {
+		logrus.Infof("assisted-installer-bmh-install label not found")
 		return false, nil, nil
 	}
 
@@ -202,6 +202,9 @@ func (r *ReconcileBareMetalHost) findBMHHost(bmh *bmh_v1alpha1.BareMetalHost) (*
 		inventory := models.Inventory{}
 		err := json.Unmarshal([]byte(host.Inventory), &inventory)
 		if err != nil {
+			continue
+		}
+		if inventory.BmcAddress == "" {
 			continue
 		}
 		if strings.Contains(bmh.Spec.BMC.Address, inventory.BmcAddress) {

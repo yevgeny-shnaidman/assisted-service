@@ -88,6 +88,11 @@ func (i *installCmd) GetSteps(ctx context.Context, host *models.Host) ([]*models
 		data["INSTALLATION_TIMEOUT"] = strconv.Itoa(int(i.instructionConfig.InstallationTimeout))
 	}
 
+	host.InstallerArgs, err = addStaticIPArgs(cluster, host)
+	if err != nil {
+		return nil, err
+	}
+
 	if host.InstallerArgs != "" {
 		cmdArgsTmpl = cmdArgsTmpl + " --installer-args '{{.INSTALLER_ARGS}}'"
 		data["INSTALLER_ARGS"] = host.InstallerArgs
@@ -195,4 +200,37 @@ func (i *installCmd) getDiskUnbootableCmd(ctx context.Context, host models.Host)
 		}
 	}
 	return formatCmds, nil
+}
+
+func addStaticIPArgs(cluster common.Cluster, host models.Host) (string, error) {
+	if cluster.ImageInfo.StaticIpsConfig == "" {
+		return host.InstallerArgs, nil
+	}
+
+	if host.InstallerArgs == "" {
+		newArgs := []string{"--copy-network"}
+		argsBytes, err := json.Marshal(newArgs)
+		if err != nil {
+			return "", err
+		}
+		return string(argsBytes), nil
+        }
+
+	var currentInstallerArgs []string
+	err := json.Unmarshal(host.InstallerArgs, &currentInstallerArgs)
+	if err != nil {
+		return "", err
+	}
+
+	// installer args already contain  command for network configuration
+	if funk.Contains(currentInstallerArgs, "--copy-network") {
+		return host.InstallerArgs, nil
+	}
+
+	currentInstallerArgs = append(currentInstallerArgs, "--copy-network")
+	argsBytes, err := json.Marshal(currentInstallerArgs)
+	if err != nil {
+		return "", err
+	}
+	return string(argsBytes, nil)
 }

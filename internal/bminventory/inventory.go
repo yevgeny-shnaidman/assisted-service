@@ -3712,6 +3712,11 @@ func (b *bareMetalInventory) RegisterOCPCluster(ctx context.Context) error {
 
 	log.Infof("Register OCP cluster: %s with id %s", clusterName, id.String())
 
+	if ocpCluster := b.getOCPCluster(); ocpCluster != nil {
+		log.Infof("OCP cluster already exist, cluster ID %s", ocpCluster.ID)
+		return nil
+	}
+
 	apiVIP, baseDNSDomain, machineCidr, sshKey, err := b.getInstallConfigParamsFromOCP(log)
 	if err != nil {
 		return err
@@ -3918,10 +3923,12 @@ func (b *bareMetalInventory) getOCPHostInventory(node *v1.Node, machineNetworkCi
 				MacAddress:    "some MAC address",
 			},
 		},
-		Hostname: hostname,
-		CPU:      &models.CPU{Architecture: arch},
-		Memory:   &models.Memory{},
-		Disks:    []*models.Disk{{}},
+		Hostname:     hostname,
+		CPU:          &models.CPU{Architecture: arch},
+		Memory:       &models.Memory{},
+		Disks:        []*models.Disk{{}},
+		BmcAddress:   "unknown",
+		BmcV6address: "unknown",
 	}
 	ret, err := json.Marshal(&inventory)
 	return string(ret), err
@@ -3971,4 +3978,12 @@ func (b *bareMetalInventory) GetISOHttpURL() (string, error) {
 	}
 	url := installer.GetClusterURL{ClusterID: *cluster.ID}
 	return strings.Join([]string{url.String(), "downloads/image"}, "/"), nil
+}
+
+func (b *bareMetalInventory) getOCPCluster() *common.Cluster {
+	var cluster common.Cluster
+	if err := b.db.Preload("Hosts").First(&cluster, "kind = ?", models.ClusterKindAddHostsOCPCluster).Error; err != nil {
+		return nil
+	}
+	return &cluster
 }
