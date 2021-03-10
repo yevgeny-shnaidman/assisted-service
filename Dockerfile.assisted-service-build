@@ -5,8 +5,11 @@ ENV GOFLAGS=""
 
 RUN yum install -y docker libvirt-clients awscli python3-pip postgresql genisoimage && \
     yum clean all
-RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | \
-    bash -s -- 3.8.8 && mv kustomize /usr/bin/
+RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" -o install_kustomize.sh
+RUN chmod 755 install_kustomize.sh
+RUN alias curl='curl --netrc' && bash -i install_kustomize.sh
+#RUN curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | \
+#    bash -s -- 3.8.8 && mv kustomize /usr/bin/
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.36.0
 RUN curl -L https://raw.githack.com/stoplightio/spectral/master/scripts/install.sh | sh
 RUN go get -u github.com/onsi/ginkgo/ginkgo@v1.14.2 \
