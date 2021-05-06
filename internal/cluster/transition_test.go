@@ -56,7 +56,7 @@ var _ = Describe("Transition tests", func() {
 
 	Context("cancel_installation", func() {
 		BeforeEach(func() {
-			capi = NewManager(getDefaultConfig(), common.GetTestLog(), db, eventsHandler, nil, mockMetric, nil, nil, operatorsManager, nil, nil, nil)
+			capi = NewManager(getDefaultConfig(), common.GetTestLog(), db, eventsHandler, nil, mockMetric, nil, nil, nil, operatorsManager, nil, nil, nil)
 		})
 
 		It("cancel_installation", func() {
@@ -297,7 +297,7 @@ var _ = Describe("Transition tests", func() {
 					}
 				}
 
-				capi = NewManager(getDefaultConfig(), common.GetTestLog(), db, eventsHandler, nil, mockMetric, nil, nil, operatorsManager, ocmClient, mockS3Api, nil)
+				capi = NewManager(getDefaultConfig(), common.GetTestLog(), db, eventsHandler, nil, mockMetric, nil, nil, nil, operatorsManager, ocmClient, mockS3Api, nil)
 
 				// Test
 				clusterAfterRefresh, err := capi.RefreshStatus(ctx, &c, db)
@@ -346,7 +346,7 @@ var _ = Describe("Cancel cluster installation", func() {
 		mockEventsHandler = events.NewMockHandler(ctrl)
 		mockMetric = metrics.NewMockAPI(ctrl)
 		operatorsManager := operators.NewManager(common.GetTestLog(), nil, operators.Options{})
-		capi = NewManager(getDefaultConfig(), common.GetTestLog(), db, mockEventsHandler, nil, mockMetric, nil, nil, operatorsManager, nil, nil, nil)
+		capi = NewManager(getDefaultConfig(), common.GetTestLog(), db, mockEventsHandler, nil, mockMetric, nil, nil, nil, operatorsManager, nil, nil, nil)
 	})
 
 	acceptNewEvents := func(times int) {
@@ -416,7 +416,7 @@ var _ = Describe("Reset cluster", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		mockEventsHandler = events.NewMockHandler(ctrl)
 		operatorsManager := operators.NewManager(common.GetTestLog(), nil, operators.Options{})
-		capi = NewManager(getDefaultConfig(), common.GetTestLog(), db, mockEventsHandler, nil, nil, nil, nil, operatorsManager, nil, nil, nil)
+		capi = NewManager(getDefaultConfig(), common.GetTestLog(), db, mockEventsHandler, nil, nil, nil, nil, nil, operatorsManager, nil, nil, nil)
 	})
 
 	acceptNewEvents := func(times int) {
@@ -555,7 +555,7 @@ var _ = Describe("Refresh Cluster - No DHCP", func() {
 		mockS3Api = s3wrapper.NewMockAPI(ctrl)
 		mockS3Api.EXPECT().DoesObjectExist(gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
 		clusterApi = NewManager(getDefaultConfig(), common.GetTestLog().WithField("pkg", "cluster-monitor"), db,
-			mockEvents, mockHostAPI, mockMetric, nil, nil, operatorsManager, nil, mockS3Api, nil)
+			mockEvents, mockHostAPI, mockMetric, nil, nil, nil, operatorsManager, nil, mockS3Api, nil)
 
 		hid1 = strfmt.UUID(uuid.New().String())
 		hid2 = strfmt.UUID(uuid.New().String())
@@ -1189,7 +1189,7 @@ var _ = Describe("RefreshCluster - preparing for install", func() {
 		operatorsManager := operators.NewManager(common.GetTestLog(), nil, operators.Options{})
 		dnsApi := dns.NewDNSHandler(nil, common.GetTestLog())
 		clusterApi = NewManager(getDefaultConfig(), common.GetTestLog().WithField("pkg", "cluster-monitor"), db,
-			mockEvents, mockHostAPI, mockMetric, nil, nil, operatorsManager, nil, nil, dnsApi)
+			mockEvents, mockHostAPI, mockMetric, nil, nil, nil, operatorsManager, nil, nil, dnsApi)
 
 		mockHostAPI.EXPECT().IsValidMasterCandidate(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
 		hid1 = strfmt.UUID(uuid.New().String())
@@ -1476,7 +1476,7 @@ var _ = Describe("Refresh Cluster - Advanced networking validations", func() {
 		mockMetric = metrics.NewMockAPI(ctrl)
 		operatorsManager := operators.NewManager(common.GetTestLog(), nil, operators.Options{})
 		clusterApi = NewManager(getDefaultConfig(), common.GetTestLog().WithField("pkg", "cluster-monitor"), db,
-			mockEvents, mockHostAPI, mockMetric, nil, nil, operatorsManager, nil, nil, nil)
+			mockEvents, mockHostAPI, mockMetric, nil, nil, nil, operatorsManager, nil, nil, nil)
 
 		hid1 = strfmt.UUID(uuid.New().String())
 		hid2 = strfmt.UUID(uuid.New().String())
@@ -2323,7 +2323,7 @@ var _ = Describe("Refresh Cluster - With DHCP", func() {
 		mockS3Api = s3wrapper.NewMockAPI(ctrl)
 		mockS3Api.EXPECT().DoesObjectExist(gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
 		clusterApi = NewManager(getDefaultConfig(), common.GetTestLog().WithField("pkg", "cluster-monitor"), db,
-			mockEvents, mockHostAPI, mockMetric, nil, nil, operatorsManager, nil, mockS3Api, nil)
+			mockEvents, mockHostAPI, mockMetric, nil, nil, nil, operatorsManager, nil, mockS3Api, nil)
 
 		hid1 = strfmt.UUID(uuid.New().String())
 		hid2 = strfmt.UUID(uuid.New().String())
@@ -2840,7 +2840,7 @@ var _ = Describe("Refresh Cluster - Installing Cases", func() {
 		mockS3Api = s3wrapper.NewMockAPI(ctrl)
 		operatorsManager = operators.NewManager(common.GetTestLog(), nil, operators.Options{})
 		clusterApi = NewManager(getDefaultConfig(), common.GetTestLog().WithField("pkg", "cluster-monitor"), db,
-			mockEvents, mockHostAPI, mockMetric, nil, nil, operatorsManager, nil, mockS3Api, nil)
+			mockEvents, mockHostAPI, mockMetric, nil, nil, nil, operatorsManager, nil, mockS3Api, nil)
 
 		hid1 = strfmt.UUID(uuid.New().String())
 		hid2 = strfmt.UUID(uuid.New().String())
@@ -3116,7 +3116,7 @@ var _ = Describe("Refresh Cluster - Installing Cases", func() {
 					mockAccountsMgmt = ocm.NewMockOCMAccountsMgmt(ctrl)
 					ocmClient := &ocm.Client{AccountsMgmt: mockAccountsMgmt, Config: &ocm.Config{WithAMSSubscriptions: true}}
 					clusterApi = NewManager(getDefaultConfig(), common.GetTestLog().WithField("pkg", "cluster-monitor"), db,
-						mockEvents, mockHostAPI, mockMetric, nil, nil, operatorsManager, ocmClient, mockS3Api, nil)
+						mockEvents, mockHostAPI, mockMetric, nil, nil, nil, operatorsManager, ocmClient, mockS3Api, nil)
 					if !t.requiresAMSUpdate {
 						cluster.IsAmsSubscriptionConsoleUrlSet = true
 					}
@@ -3207,7 +3207,7 @@ var _ = Describe("Log Collection - refresh cluster", func() {
 		mockMetric = metrics.NewMockAPI(ctrl)
 		operatorsManager := operators.NewManager(common.GetTestLog(), nil, operators.Options{})
 		clusterApi = NewManager(logTimeoutConfig(), common.GetTestLog().WithField("pkg", "cluster-monitor"), db,
-			mockEvents, mockHostAPI, mockMetric, nil, nil, operatorsManager, nil, nil, nil)
+			mockEvents, mockHostAPI, mockMetric, nil, nil, nil, operatorsManager, nil, nil, nil)
 		clusterId = strfmt.UUID(uuid.New().String())
 	})
 
@@ -3349,7 +3349,7 @@ var _ = Describe("NTP refresh cluster", func() {
 		mockMetric = metrics.NewMockAPI(ctrl)
 		operatorsManager := operators.NewManager(common.GetTestLog(), nil, operators.Options{})
 		clusterApi = NewManager(getDefaultConfig(), common.GetTestLog().WithField("pkg", "cluster-monitor"), db,
-			mockEvents, mockHostAPI, mockMetric, nil, nil, operatorsManager, nil, nil, nil)
+			mockEvents, mockHostAPI, mockMetric, nil, nil, nil, operatorsManager, nil, nil, nil)
 		hid1 = strfmt.UUID(uuid.New().String())
 		hid2 = strfmt.UUID(uuid.New().String())
 		hid3 = strfmt.UUID(uuid.New().String())
@@ -3707,7 +3707,7 @@ var _ = Describe("NTP refresh cluster", func() {
 		mockMetric = metrics.NewMockAPI(ctrl)
 		operatorsManager := operators.NewManager(common.GetTestLog(), nil, operators.Options{})
 		clusterApi = NewManager(getDefaultConfig(), common.GetTestLog().WithField("pkg", "cluster-monitor"), db,
-			mockEvents, mockHostAPI, mockMetric, nil, nil, operatorsManager, nil, nil, nil)
+			mockEvents, mockHostAPI, mockMetric, nil, nil, nil, operatorsManager, nil, nil, nil)
 
 		hid1 = strfmt.UUID(uuid.New().String())
 		hid2 = strfmt.UUID(uuid.New().String())
@@ -4069,7 +4069,7 @@ var _ = Describe("Single node", func() {
 		mockMetric = metrics.NewMockAPI(ctrl)
 		operatorsManager := operators.NewManager(common.GetTestLog(), nil, operators.Options{})
 		clusterApi = NewManager(getDefaultConfig(), common.GetTestLog().WithField("pkg", "cluster-monitor"), db,
-			mockEvents, mockHostAPI, mockMetric, nil, nil, operatorsManager, nil, nil, nil)
+			mockEvents, mockHostAPI, mockMetric, nil, nil, nil, operatorsManager, nil, nil, nil)
 		hid1 = strfmt.UUID(uuid.New().String())
 		hid2 = strfmt.UUID(uuid.New().String())
 		hid3 = strfmt.UUID(uuid.New().String())

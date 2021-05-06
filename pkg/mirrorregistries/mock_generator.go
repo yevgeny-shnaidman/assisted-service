@@ -5,7 +5,10 @@
 package mirrorregistries
 
 import (
+	context "context"
 	gomock "github.com/golang/mock/gomock"
+	common "github.com/openshift/assisted-service/internal/common"
+	logrus "github.com/sirupsen/logrus"
 	reflect "reflect"
 )
 
@@ -89,4 +92,55 @@ func (m *MockMirrorRegistriesConfigBuilder) ExtractLocationMirrorDataFromRegistr
 func (mr *MockMirrorRegistriesConfigBuilderMockRecorder) ExtractLocationMirrorDataFromRegistries() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExtractLocationMirrorDataFromRegistries", reflect.TypeOf((*MockMirrorRegistriesConfigBuilder)(nil).ExtractLocationMirrorDataFromRegistries))
+}
+
+// AddRegistryConfManifests mocks base method
+func (m *MockMirrorRegistriesConfigBuilder) AddRegistryConfManifests(ctx context.Context, log logrus.FieldLogger, c *common.Cluster) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddRegistryConfManifests", ctx, log, c)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AddRegistryConfManifests indicates an expected call of AddRegistryConfManifests
+func (mr *MockMirrorRegistriesConfigBuilderMockRecorder) AddRegistryConfManifests(ctx, log, c interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRegistryConfManifests", reflect.TypeOf((*MockMirrorRegistriesConfigBuilder)(nil).AddRegistryConfManifests), ctx, log, c)
+}
+
+// MockMirrorRegistriesManifestsGenerator is a mock of MirrorRegistriesManifestsGenerator interface
+type MockMirrorRegistriesManifestsGenerator struct {
+	ctrl     *gomock.Controller
+	recorder *MockMirrorRegistriesManifestsGeneratorMockRecorder
+}
+
+// MockMirrorRegistriesManifestsGeneratorMockRecorder is the mock recorder for MockMirrorRegistriesManifestsGenerator
+type MockMirrorRegistriesManifestsGeneratorMockRecorder struct {
+	mock *MockMirrorRegistriesManifestsGenerator
+}
+
+// NewMockMirrorRegistriesManifestsGenerator creates a new mock instance
+func NewMockMirrorRegistriesManifestsGenerator(ctrl *gomock.Controller) *MockMirrorRegistriesManifestsGenerator {
+	mock := &MockMirrorRegistriesManifestsGenerator{ctrl: ctrl}
+	mock.recorder = &MockMirrorRegistriesManifestsGeneratorMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use
+func (m *MockMirrorRegistriesManifestsGenerator) EXPECT() *MockMirrorRegistriesManifestsGeneratorMockRecorder {
+	return m.recorder
+}
+
+// AddRegistryConfManifests mocks base method
+func (m *MockMirrorRegistriesManifestsGenerator) AddRegistryConfManifests(ctx context.Context, log logrus.FieldLogger, c *common.Cluster) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddRegistryConfManifests", ctx, log, c)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AddRegistryConfManifests indicates an expected call of AddRegistryConfManifests
+func (mr *MockMirrorRegistriesManifestsGeneratorMockRecorder) AddRegistryConfManifests(ctx, log, c interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRegistryConfManifests", reflect.TypeOf((*MockMirrorRegistriesManifestsGenerator)(nil).AddRegistryConfManifests), ctx, log, c)
 }

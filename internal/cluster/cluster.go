@@ -31,6 +31,7 @@ import (
 	"github.com/openshift/assisted-service/pkg/commonutils"
 	"github.com/openshift/assisted-service/pkg/leader"
 	logutil "github.com/openshift/assisted-service/pkg/log"
+	"github.com/openshift/assisted-service/pkg/mirrorregistries"
 	"github.com/openshift/assisted-service/pkg/ocm"
 	"github.com/openshift/assisted-service/pkg/requestid"
 	"github.com/openshift/assisted-service/pkg/s3wrapper"
@@ -130,6 +131,7 @@ type Manager struct {
 	sm                    stateswitch.StateMachine
 	metricAPI             metrics.API
 	manifestsGeneratorAPI network.ManifestsGeneratorAPI
+	mirrorsManifestAPI    mirrorregistries.MirrorRegistriesManifestsGenerator
 	hostAPI               host.API
 	rp                    *refreshPreprocessor
 	leaderElector         leader.Leader
@@ -140,7 +142,7 @@ type Manager struct {
 }
 
 func NewManager(cfg Config, log logrus.FieldLogger, db *gorm.DB, eventsHandler events.Handler,
-	hostAPI host.API, metricApi metrics.API, manifestsGeneratorAPI network.ManifestsGeneratorAPI,
+	hostAPI host.API, metricApi metrics.API, manifestsGeneratorAPI network.ManifestsGeneratorAPI, mirrorsManifestAPI mirrorregistries.MirrorRegistriesManifestsGenerator,
 	leaderElector leader.Leader, operatorsApi operators.API, ocmClient *ocm.Client, objectHandler s3wrapper.API, dnsApi dns.DNSApi) *Manager {
 	th := &transitionHandler{
 		log:           log,
@@ -157,6 +159,7 @@ func NewManager(cfg Config, log logrus.FieldLogger, db *gorm.DB, eventsHandler e
 		sm:                    NewClusterStateMachine(th),
 		metricAPI:             metricApi,
 		manifestsGeneratorAPI: manifestsGeneratorAPI,
+		mirrorsManifestAPI:    mirrorsManifestAPI,
 		rp:                    newRefreshPreprocessor(log, hostAPI, operatorsApi),
 		hostAPI:               hostAPI,
 		leaderElector:         leaderElector,
@@ -696,10 +699,10 @@ func (m *Manager) ResetCluster(ctx context.Context, c *common.Cluster, reason st
 func (m *Manager) PrepareForInstallation(ctx context.Context, c *common.Cluster, db *gorm.DB) error {
 	err := m.sm.Run(TransitionTypePrepareForInstallation, newStateCluster(c),
 		&TransitionArgsPrepareForInstallation{
-			ctx:                ctx,
-			db:                 db,
-			manifestsGenerator: m.manifestsGeneratorAPI,
-			metricApi:          m.metricAPI,
+			ctx: ctx,
+			db:  db,
+			//manifestsGenerator: m.manifestsGeneratorAPI,
+			metricApi: m.metricAPI,
 		},
 	)
 	return err
@@ -1061,6 +1064,12 @@ func (m *Manager) GenerateAdditionalManifests(ctx context.Context, cluster *comm
 			return errors.Wrapf(err, "Cluster %s - failed to generate manifests for vmware hosts", cluster.ID.String())
 		}
 	}
+
+	err = m.mirrorsManifestAPI.AddRegistryConfManifests(ctx, log, cluster)
+	if err != nil {
+		return errors.Wrapf(err, "Cluster %s - failed to generate manifests for mirror registries", cluster.ID.String())
+	}
+
 	return nil
 }
 

@@ -220,9 +220,9 @@ func main() {
 	crdEventsHandler := createCRDEventsHandler()
 	eventsHandler := createEventsHandler(crdEventsHandler, db, log)
 	staticNetworkConfig := staticnetworkconfig.New(log.WithField("pkg", "static_network_config"))
-	mirrorRegistriesBuilder := mirrorregistries.New()
-	ignitionBuilder := ignition.NewBuilder(log.WithField("pkg", "ignition"), staticNetworkConfig, mirrorRegistriesBuilder)
-	installConfigBuilder := installcfg.NewInstallConfigBuilder(log.WithField("pkg", "installcfg"), mirrorRegistriesBuilder)
+	//mirrorRegistriesBuilder := mirrorregistries.New()
+	//ignitionBuilder := ignition.NewBuilder(log.WithField("pkg", "ignition"), staticNetworkConfig, mirrorRegistriesBuilder)
+	//installConfigBuilder := installcfg.NewInstallConfigBuilder(log.WithField("pkg", "installcfg"), mirrorRegistriesBuilder)
 	isoEditorFactory := isoeditor.NewFactory(Options.ISOEditorConfig, staticNetworkConfig)
 
 	var objectHandler = createStorageClient(Options.DeployTarget, Options.Storage, &Options.S3Config,
@@ -230,6 +230,10 @@ func main() {
 	createS3Bucket(objectHandler, log)
 
 	manifestsApi := manifests.NewManifestsAPI(db, log.WithField("pkg", "manifests"), objectHandler)
+	mirrorRegistriesBuilder := mirrorregistries.New(manifestsApi)
+	ignitionBuilder := ignition.NewBuilder(log.WithField("pkg", "ignition"), staticNetworkConfig, mirrorRegistriesBuilder)
+	installConfigBuilder := installcfg.NewInstallConfigBuilder(log.WithField("pkg", "installcfg"), mirrorRegistriesBuilder)
+	//isoEditorFactory := isoeditor.NewFactory(Options.ISOEditorConfig, staticNetworkConfig)
 	operatorsManager := operators.NewManager(log, manifestsApi, Options.OperatorsConfig)
 	hwValidator := hardware.NewValidator(log.WithField("pkg", "validators"), Options.HWValidatorConfig, operatorsManager)
 	connectivityValidator := connectivity.NewValidator(log.WithField("pkg", "validators"))
@@ -304,7 +308,7 @@ func main() {
 	dnsApi := dns.NewDNSHandler(Options.BMConfig.BaseDNSDomains, log)
 	manifestsGenerator := network.NewManifestsGenerator(manifestsApi)
 	clusterApi := cluster.NewManager(Options.ClusterConfig, log.WithField("pkg", "cluster-state"), db,
-		eventsHandler, hostApi, metricsManager, manifestsGenerator, lead, operatorsManager, ocmClient, objectHandler, dnsApi)
+		eventsHandler, hostApi, metricsManager, manifestsGenerator, mirrorRegistriesBuilder, lead, operatorsManager, ocmClient, objectHandler, dnsApi)
 	bootFilesApi := bootfiles.NewBootFilesAPI(log.WithField("pkg", "bootfiles"), objectHandler)
 
 	clusterStateMonitor := thread.New(
