@@ -180,6 +180,9 @@ type InstallerAPI interface {
 	/* RegisterHost Registers a new OpenShift host. */
 	RegisterHost(ctx context.Context, params installer.RegisterHostParams) middleware.Responder
 
+	/* RegisterPoolCluster Create a new pool cluster definition, used for holding nodes that will later be moved to day1/day2 clusters */
+	RegisterPoolCluster(ctx context.Context, params installer.RegisterPoolClusterParams) middleware.Responder
+
 	/* ResetCluster Resets a failed installation. */
 	ResetCluster(ctx context.Context, params installer.ResetClusterParams) middleware.Responder
 
@@ -630,6 +633,11 @@ func HandlerAPI(c Config) (http.Handler, *operations.AssistedInstallAPI, error) 
 		ctx := params.HTTPRequest.Context()
 		ctx = storeAuth(ctx, principal)
 		return c.InstallerAPI.RegisterHost(ctx, params)
+	})
+	api.InstallerRegisterPoolClusterHandler = installer.RegisterPoolClusterHandlerFunc(func(params installer.RegisterPoolClusterParams, principal interface{}) middleware.Responder {
+		ctx := params.HTTPRequest.Context()
+		ctx = storeAuth(ctx, principal)
+		return c.InstallerAPI.RegisterPoolCluster(ctx, params)
 	})
 	api.OperatorsReportMonitoredOperatorStatusHandler = operators.ReportMonitoredOperatorStatusHandlerFunc(func(params operators.ReportMonitoredOperatorStatusParams, principal interface{}) middleware.Responder {
 		ctx := params.HTTPRequest.Context()

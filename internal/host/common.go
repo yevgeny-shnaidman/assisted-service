@@ -34,6 +34,7 @@ const (
 	statusInfoConnectionTimedOut                               = "Host failed to install due to timeout while connecting to host"
 	statusInfoInstallationInProgressTimedOut                   = "Host failed to install because its installation stage $STAGE took longer than expected $MAX_TIME"
 	statusInfoInstallationInProgressWritingImageToDiskTimedOut = "Host failed to install because its installation stage $STAGE did not sufficiently progress in the last $MAX_TIME."
+	statusInfoHostReadyToBeMoved                               = "Host is part of pool cluster and is ready to be moved"
 )
 
 var hostStatusesBeforeInstallation = [...]string{

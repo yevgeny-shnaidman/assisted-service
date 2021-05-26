@@ -42,6 +42,7 @@ type InstructionManager struct {
 	db                            *gorm.DB
 	installingClusterStateToSteps stateToStepsMap
 	addHostsClusterToSteps        stateToStepsMap
+	poolClusterToSteps            stateToStepsMap
 }
 
 type InstructionConfig struct {
@@ -103,6 +104,13 @@ func NewInstructionManager(log logrus.FieldLogger, db *gorm.DB, hwValidator hard
 			models.HostStatusResetting:            {[]CommandGetter{resetCmd}, defaultBackedOffInstructionInSec},
 			models.HostStatusError:                {[]CommandGetter{stopCmd}, defaultBackedOffInstructionInSec},
 			models.HostStatusCancelled:            {[]CommandGetter{stopCmd}, defaultBackedOffInstructionInSec},
+		},
+		poolClusterToSteps: stateToStepsMap{
+			models.HostStatusDiscovering:    {[]CommandGetter{inventoryCmd}, defaultNextInstructionInSec},
+			models.HostStatusDisconnected:   {[]CommandGetter{inventoryCmd}, defaultBackedOffInstructionInSec},
+			models.HostStatusDisabled:       {[]CommandGetter{}, defaultBackedOffInstructionInSec},
+			models.HostStatusInsufficient:   {[]CommandGetter{inventoryCmd}, defaultNextInstructionInSec},
+			models.HostStatusReadyToBeMoved: {[]CommandGetter{inventoryCmd}, defaultNextInstructionInSec},
 		},
 	}
 }

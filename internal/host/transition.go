@@ -526,6 +526,14 @@ func (th *transitionHandler) IsDay2Host(sw stateswitch.StateSwitch, args statesw
 	return hostutil.IsDay2Host(sHost.host), nil
 }
 
+func (th *transitionHandler) IsPoolClusterHost(sw stateswitch.StateSwitch, args stateswitch.TransitionArgs) (bool, error) {
+	sHost, ok := sw.(*stateHost)
+	if !ok {
+		return false, errors.New("HasClusterError incompatible type of StateSwitch")
+	}
+	return hostutil.IsPoolClusterHost(sHost.host), nil
+}
+
 func (th *transitionHandler) HostNotResponsiveWhilePreparingInstallation(sw stateswitch.StateSwitch, args stateswitch.TransitionArgs) (bool, error) {
 	sHost, ok := sw.(*stateHost)
 	if !ok {

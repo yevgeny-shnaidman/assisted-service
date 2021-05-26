@@ -85,10 +85,10 @@ type Host struct {
 	Inventory string `json:"inventory,omitempty" gorm:"type:text"`
 
 	// Indicates the type of this object. Will be 'Host' if this is a complete object or 'HostLink' if it is just a link, or
-	// 'AddToExistingClusterHost' for host being added to existing OCP cluster, or
+	// 'AddToExistingClusterHost' for host being added to existing OCP cluster, or 'PoolClusterHost' for host in the PoolCluster
 	//
 	// Required: true
-	// Enum: [Host AddToExistingClusterHost]
+	// Enum: [Host AddToExistingClusterHost PoolClusterHost]
 	Kind *string `json:"kind"`
 
 	// logs collected at
@@ -130,7 +130,7 @@ type Host struct {
 
 	// status
 	// Required: true
-	// Enum: [discovering known disconnected insufficient disabled preparing-for-installation preparing-successful pending-for-input installing installing-in-progress installing-pending-user-action resetting-pending-user-action installed error resetting added-to-existing-cluster cancelled]
+	// Enum: [discovering known disconnected insufficient disabled preparing-for-installation preparing-successful pending-for-input installing installing-in-progress installing-pending-user-action resetting-pending-user-action installed error resetting added-to-existing-cluster cancelled ready-to-be-moved]
 	Status *string `json:"status"`
 
 	// status info
@@ -316,7 +316,7 @@ var hostTypeKindPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["Host","AddToExistingClusterHost"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["Host","AddToExistingClusterHost","PoolClusterHost"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -331,6 +331,9 @@ const (
 
 	// HostKindAddToExistingClusterHost captures enum value "AddToExistingClusterHost"
 	HostKindAddToExistingClusterHost string = "AddToExistingClusterHost"
+
+	// HostKindPoolClusterHost captures enum value "PoolClusterHost"
+	HostKindPoolClusterHost string = "PoolClusterHost"
 )
 
 // prop value enum
@@ -481,7 +484,7 @@ var hostTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["discovering","known","disconnected","insufficient","disabled","preparing-for-installation","preparing-successful","pending-for-input","installing","installing-in-progress","installing-pending-user-action","resetting-pending-user-action","installed","error","resetting","added-to-existing-cluster","cancelled"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["discovering","known","disconnected","insufficient","disabled","preparing-for-installation","preparing-successful","pending-for-input","installing","installing-in-progress","installing-pending-user-action","resetting-pending-user-action","installed","error","resetting","added-to-existing-cluster","cancelled","ready-to-be-moved"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -541,6 +544,9 @@ const (
 
 	// HostStatusCancelled captures enum value "cancelled"
 	HostStatusCancelled string = "cancelled"
+
+	// HostStatusReadyToBeMoved captures enum value "ready-to-be-moved"
+	HostStatusReadyToBeMoved string = "ready-to-be-moved"
 )
 
 // prop value enum

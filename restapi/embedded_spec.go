@@ -4884,6 +4884,58 @@ func init() {
         }
       }
     },
+    "/pool_clusters": {
+      "post": {
+        "description": "Create a new pool cluster definition, used for holding nodes that will later be moved to day1/day2 clusters",
+        "tags": [
+          "installer"
+        ],
+        "operationId": "RegisterPoolCluster",
+        "parameters": [
+          {
+            "description": "Parameters for creating a new pool cluster.",
+            "name": "new-pool-cluster-params",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/pool-cluster-create-params"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "schema": {
+              "$ref": "#/definitions/cluster"
+            }
+          },
+          "400": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "schema": {
+              "$ref": "#/definitions/infra_error"
+            }
+          },
+          "403": {
+            "description": "Forbidden.",
+            "schema": {
+              "$ref": "#/definitions/infra_error"
+            }
+          },
+          "500": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          }
+        }
+      }
+    },
     "/supported-operators": {
       "get": {
         "description": "Retrieves the list of supported operators.",
@@ -5240,11 +5292,12 @@ func init() {
           "x-go-custom-tag": "gorm:\"type:timestamp with time zone;default:'2000-01-01 00:00:00z'\""
         },
         "kind": {
-          "description": "Indicates the type of this object. Will be 'Cluster' if this is a complete object,\n'AddHostsCluster' for cluster that add hosts to existing OCP cluster,\n",
+          "description": "Indicates the type of this object. Will be 'Cluster' if this is a complete object,\n'AddHostsCluster' for cluster that add hosts to existing OCP cluster, 'PoolCluster' if this is\nthe hosts pool\n",
           "type": "string",
           "enum": [
             "Cluster",
-            "AddHostsCluster"
+            "AddHostsCluster",
+            "PoolCluster"
           ]
         },
         "logs_info": {
@@ -5322,6 +5375,7 @@ func init() {
             "finalizing",
             "installed",
             "adding-hosts",
+            "pool-cluster",
             "cancelled",
             "installing-pending-user-action"
           ]
@@ -6547,11 +6601,12 @@ func init() {
           "x-go-custom-tag": "gorm:\"type:text\""
         },
         "kind": {
-          "description": "Indicates the type of this object. Will be 'Host' if this is a complete object or 'HostLink' if it is just a link, or\n'AddToExistingClusterHost' for host being added to existing OCP cluster, or\n",
+          "description": "Indicates the type of this object. Will be 'Host' if this is a complete object or 'HostLink' if it is just a link, or\n'AddToExistingClusterHost' for host being added to existing OCP cluster, or 'PoolClusterHost' for host in the PoolCluster\n",
           "type": "string",
           "enum": [
             "Host",
-            "AddToExistingClusterHost"
+            "AddToExistingClusterHost",
+            "PoolClusterHost"
           ]
         },
         "logs_collected_at": {
@@ -6625,7 +6680,8 @@ func init() {
             "error",
             "resetting",
             "added-to-existing-cluster",
-            "cancelled"
+            "cancelled",
+            "ready-to-be-moved"
           ]
         },
         "status_info": {
@@ -7536,6 +7592,51 @@ func init() {
         "builtin",
         "olm"
       ]
+    },
+    "pool-cluster-create-params": {
+      "type": "object",
+      "required": [
+        "name",
+        "openshift_version",
+        "pull_secret"
+      ],
+      "properties": {
+        "http_proxy": {
+          "description": "A proxy URL to use for creating HTTP connections outside the cluster.\nhttp://\\\u003cusername\\\u003e:\\\u003cpswd\\\u003e@\\\u003cip\\\u003e:\\\u003cport\\\u003e\n",
+          "type": "string",
+          "x-nullable": true
+        },
+        "https_proxy": {
+          "description": "A proxy URL to use for creating HTTPS connections outside the cluster.\nhttp://\\\u003cusername\\\u003e:\\\u003cpswd\\\u003e@\\\u003cip\\\u003e:\\\u003cport\\\u003e\n",
+          "type": "string",
+          "x-nullable": true
+        },
+        "name": {
+          "description": "Name of the OpenShift cluster.",
+          "type": "string",
+          "maxLength": 54,
+          "minLength": 1
+        },
+        "no_proxy": {
+          "description": "An \"*\" or a comma-separated list of destination domain names, domains, IP addresses, or other network CIDRs to exclude from proxying.",
+          "type": "string",
+          "x-nullable": true
+        },
+        "openshift_version": {
+          "description": "Version of the OpenShift cluster.",
+          "type": "string"
+        },
+        "pull_secret": {
+          "description": "The pull secret obtained from Red Hat OpenShift Cluster Manager at cloud.redhat.com/openshift/install/pull-secret.",
+          "type": "string"
+        },
+        "user_managed_networking": {
+          "description": "Indicate if the networking is managed by the user.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": true
+        }
+      }
     },
     "preflight-hardware-requirements": {
       "type": "object",
@@ -12652,6 +12753,58 @@ func init() {
         }
       }
     },
+    "/pool_clusters": {
+      "post": {
+        "description": "Create a new pool cluster definition, used for holding nodes that will later be moved to day1/day2 clusters",
+        "tags": [
+          "installer"
+        ],
+        "operationId": "RegisterPoolCluster",
+        "parameters": [
+          {
+            "description": "Parameters for creating a new pool cluster.",
+            "name": "new-pool-cluster-params",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/pool-cluster-create-params"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "schema": {
+              "$ref": "#/definitions/cluster"
+            }
+          },
+          "400": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          },
+          "401": {
+            "description": "Unauthorized.",
+            "schema": {
+              "$ref": "#/definitions/infra_error"
+            }
+          },
+          "403": {
+            "description": "Forbidden.",
+            "schema": {
+              "$ref": "#/definitions/infra_error"
+            }
+          },
+          "500": {
+            "description": "Error.",
+            "schema": {
+              "$ref": "#/definitions/error"
+            }
+          }
+        }
+      }
+    },
     "/supported-operators": {
       "get": {
         "description": "Retrieves the list of supported operators.",
@@ -13152,11 +13305,12 @@ func init() {
           "x-go-custom-tag": "gorm:\"type:timestamp with time zone;default:'2000-01-01 00:00:00z'\""
         },
         "kind": {
-          "description": "Indicates the type of this object. Will be 'Cluster' if this is a complete object,\n'AddHostsCluster' for cluster that add hosts to existing OCP cluster,\n",
+          "description": "Indicates the type of this object. Will be 'Cluster' if this is a complete object,\n'AddHostsCluster' for cluster that add hosts to existing OCP cluster, 'PoolCluster' if this is\nthe hosts pool\n",
           "type": "string",
           "enum": [
             "Cluster",
-            "AddHostsCluster"
+            "AddHostsCluster",
+            "PoolCluster"
           ]
         },
         "logs_info": {
@@ -13234,6 +13388,7 @@ func init() {
             "finalizing",
             "installed",
             "adding-hosts",
+            "pool-cluster",
             "cancelled",
             "installing-pending-user-action"
           ]
@@ -14383,11 +14538,12 @@ func init() {
           "x-go-custom-tag": "gorm:\"type:text\""
         },
         "kind": {
-          "description": "Indicates the type of this object. Will be 'Host' if this is a complete object or 'HostLink' if it is just a link, or\n'AddToExistingClusterHost' for host being added to existing OCP cluster, or\n",
+          "description": "Indicates the type of this object. Will be 'Host' if this is a complete object or 'HostLink' if it is just a link, or\n'AddToExistingClusterHost' for host being added to existing OCP cluster, or 'PoolClusterHost' for host in the PoolCluster\n",
           "type": "string",
           "enum": [
             "Host",
-            "AddToExistingClusterHost"
+            "AddToExistingClusterHost",
+            "PoolClusterHost"
           ]
         },
         "logs_collected_at": {
@@ -14461,7 +14617,8 @@ func init() {
             "error",
             "resetting",
             "added-to-existing-cluster",
-            "cancelled"
+            "cancelled",
+            "ready-to-be-moved"
           ]
         },
         "status_info": {
@@ -15362,6 +15519,51 @@ func init() {
         "builtin",
         "olm"
       ]
+    },
+    "pool-cluster-create-params": {
+      "type": "object",
+      "required": [
+        "name",
+        "openshift_version",
+        "pull_secret"
+      ],
+      "properties": {
+        "http_proxy": {
+          "description": "A proxy URL to use for creating HTTP connections outside the cluster.\nhttp://\\\u003cusername\\\u003e:\\\u003cpswd\\\u003e@\\\u003cip\\\u003e:\\\u003cport\\\u003e\n",
+          "type": "string",
+          "x-nullable": true
+        },
+        "https_proxy": {
+          "description": "A proxy URL to use for creating HTTPS connections outside the cluster.\nhttp://\\\u003cusername\\\u003e:\\\u003cpswd\\\u003e@\\\u003cip\\\u003e:\\\u003cport\\\u003e\n",
+          "type": "string",
+          "x-nullable": true
+        },
+        "name": {
+          "description": "Name of the OpenShift cluster.",
+          "type": "string",
+          "maxLength": 54,
+          "minLength": 1
+        },
+        "no_proxy": {
+          "description": "An \"*\" or a comma-separated list of destination domain names, domains, IP addresses, or other network CIDRs to exclude from proxying.",
+          "type": "string",
+          "x-nullable": true
+        },
+        "openshift_version": {
+          "description": "Version of the OpenShift cluster.",
+          "type": "string"
+        },
+        "pull_secret": {
+          "description": "The pull secret obtained from Red Hat OpenShift Cluster Manager at cloud.redhat.com/openshift/install/pull-secret.",
+          "type": "string"
+        },
+        "user_managed_networking": {
+          "description": "Indicate if the networking is managed by the user.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": true
+        }
+      }
     },
     "preflight-hardware-requirements": {
       "type": "object",

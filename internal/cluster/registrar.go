@@ -33,6 +33,10 @@ func (r *registrar) RegisterAddHostsCluster(ctx context.Context, cluster *common
 	return r.registerCluster(ctx, cluster, models.ClusterStatusAddingHosts, statusInfoAddingHosts, time.Now())
 }
 
+func (r *registrar) RegisterPoolCluster(ctx context.Context, cluster *common.Cluster) error {
+	return r.registerCluster(ctx, cluster, models.ClusterStatusPoolCluster, statusInfoPoolHosts, time.Now())
+}
+
 func (r *registrar) registerCluster(ctx context.Context, cluster *common.Cluster, status, statusInfo string, registerTime time.Time) error {
 	cluster.Status = swag.String(status)
 	cluster.StatusInfo = swag.String(statusInfo)

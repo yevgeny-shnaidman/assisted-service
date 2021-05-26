@@ -3156,6 +3156,41 @@ paths:
           schema:
             $ref: '#/definitions/error'
 
+  /pool_clusters:
+    post:
+      tags:
+        - installer
+      description: Create a new pool cluster definition, used for holding nodes that will later be moved to day1/day2 clusters
+      operationId: RegisterPoolCluster
+      parameters:
+        - in: body
+          name: new-pool-cluster-params
+          description: Parameters for creating a new pool cluster.
+          required: true
+          schema:
+            $ref: '#/definitions/pool-cluster-create-params'
+      responses:
+        "201":
+          description: Success.
+          schema:
+            $ref: '#/definitions/cluster'
+        "400":
+          description: Error.
+          schema:
+            $ref: '#/definitions/error'
+        "401":
+          description: Unauthorized.
+          schema:
+            $ref: '#/definitions/infra_error'
+        "403":
+          description: Forbidden.
+          schema:
+            $ref: '#/definitions/infra_error'
+        "500":
+          description: Error.
+          schema:
+            $ref: '#/definitions/error'
+
   /boot-files:
     get:
       tags:
@@ -3661,10 +3696,10 @@ definitions:
     properties:
       kind:
         type: string
-        enum: ['Host', 'AddToExistingClusterHost']
+        enum: ['Host', 'AddToExistingClusterHost', 'PoolClusterHost']
         description: |
           Indicates the type of this object. Will be 'Host' if this is a complete object or 'HostLink' if it is just a link, or
-          'AddToExistingClusterHost' for host being added to existing OCP cluster, or
+          'AddToExistingClusterHost' for host being added to existing OCP cluster, or 'PoolClusterHost' for host in the PoolCluster
       id:
         type: string
         format: uuid
@@ -3698,6 +3733,7 @@ definitions:
           - resetting
           - added-to-existing-cluster
           - cancelled
+          - ready-to-be-moved
       status_info:
         type: string
         x-go-custom-tag: gorm:"type:varchar(2048)"
@@ -4186,6 +4222,46 @@ definitions:
         type: string
         description: Version of the OpenShift cluster.
 
+  pool-cluster-create-params:
+    type: object
+    required:
+      - name
+      - openshift_version
+      - pull_secret
+    properties:
+      name:
+        type: string
+        minLength: 1
+        maxLength: 54
+        description: Name of the OpenShift cluster.
+      openshift_version:
+        type: string
+        description: Version of the OpenShift cluster.
+      pull_secret:
+        type: string
+        description: The pull secret obtained from Red Hat OpenShift Cluster Manager at cloud.redhat.com/openshift/install/pull-secret.
+      http_proxy:
+        type: string
+        description: |
+          A proxy URL to use for creating HTTP connections outside the cluster.
+          http://\<username\>:\<pswd\>@\<ip\>:\<port\>
+        x-nullable: true
+      https_proxy:
+        type: string
+        description: |
+          A proxy URL to use for creating HTTPS connections outside the cluster.
+          http://\<username\>:\<pswd\>@\<ip\>:\<port\>
+        x-nullable: true
+      no_proxy:
+        type: string
+        description: An "*" or a comma-separated list of destination domain names, domains, IP addresses, or other network CIDRs to exclude from proxying.
+        x-nullable: true
+      user_managed_networking:
+        type: boolean
+        description: Indicate if the networking is managed by the user.
+        x-nullable: true
+        default: false
+
   cluster:
     type: object
     required:
@@ -4198,10 +4274,11 @@ definitions:
     properties:
       kind:
         type: string
-        enum: ['Cluster', 'AddHostsCluster']
+        enum: ['Cluster', 'AddHostsCluster', 'PoolCluster']
         description: |
           Indicates the type of this object. Will be 'Cluster' if this is a complete object,
-          'AddHostsCluster' for cluster that add hosts to existing OCP cluster,
+          'AddHostsCluster' for cluster that add hosts to existing OCP cluster, 'PoolCluster' if this is
+          the hosts pool
       high_availability_mode:
         type: string
         enum: ['Full', 'None']
@@ -4301,6 +4378,7 @@ definitions:
           - finalizing
           - installed
           - adding-hosts
+          - pool-cluster
           - cancelled
           - installing-pending-user-action
       status_info:

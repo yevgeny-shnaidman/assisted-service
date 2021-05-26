@@ -212,6 +212,9 @@ func NewAssistedInstallAPI(spec *loads.Document) *AssistedInstallAPI {
 		InstallerRegisterHostHandler: installer.RegisterHostHandlerFunc(func(params installer.RegisterHostParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation installer.RegisterHost has not yet been implemented")
 		}),
+		InstallerRegisterPoolClusterHandler: installer.RegisterPoolClusterHandlerFunc(func(params installer.RegisterPoolClusterParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation installer.RegisterPoolCluster has not yet been implemented")
+		}),
 		OperatorsReportMonitoredOperatorStatusHandler: operators.ReportMonitoredOperatorStatusHandlerFunc(func(params operators.ReportMonitoredOperatorStatusParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation operators.ReportMonitoredOperatorStatus has not yet been implemented")
 		}),
@@ -433,6 +436,8 @@ type AssistedInstallAPI struct {
 	InstallerRegisterClusterHandler installer.RegisterClusterHandler
 	// InstallerRegisterHostHandler sets the operation handler for the register host operation
 	InstallerRegisterHostHandler installer.RegisterHostHandler
+	// InstallerRegisterPoolClusterHandler sets the operation handler for the register pool cluster operation
+	InstallerRegisterPoolClusterHandler installer.RegisterPoolClusterHandler
 	// OperatorsReportMonitoredOperatorStatusHandler sets the operation handler for the report monitored operator status operation
 	OperatorsReportMonitoredOperatorStatusHandler operators.ReportMonitoredOperatorStatusHandler
 	// InstallerResetClusterHandler sets the operation handler for the reset cluster operation
@@ -713,6 +718,9 @@ func (o *AssistedInstallAPI) Validate() error {
 	}
 	if o.InstallerRegisterHostHandler == nil {
 		unregistered = append(unregistered, "installer.RegisterHostHandler")
+	}
+	if o.InstallerRegisterPoolClusterHandler == nil {
+		unregistered = append(unregistered, "installer.RegisterPoolClusterHandler")
 	}
 	if o.OperatorsReportMonitoredOperatorStatusHandler == nil {
 		unregistered = append(unregistered, "operators.ReportMonitoredOperatorStatusHandler")
@@ -1080,6 +1088,10 @@ func (o *AssistedInstallAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/clusters/{cluster_id}/hosts"] = installer.NewRegisterHost(o.context, o.InstallerRegisterHostHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/pool_clusters"] = installer.NewRegisterPoolCluster(o.context, o.InstallerRegisterPoolClusterHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}

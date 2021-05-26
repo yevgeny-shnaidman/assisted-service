@@ -63,6 +63,8 @@ type RegistrationAPI interface {
 	RegisterAddHostsCluster(ctx context.Context, c *common.Cluster) error
 	// Register a new add-host-ocp cluster
 	RegisterAddHostsOCPCluster(c *common.Cluster, db *gorm.DB) error
+	// Register a new pool cluster
+	RegisterPoolCluster(ctx context.Context, c *common.Cluster) error
 	//deregister cluster
 	DeregisterCluster(ctx context.Context, c *common.Cluster) error
 }
@@ -187,6 +189,18 @@ func (m *Manager) RegisterAddHostsCluster(ctx context.Context, c *common.Cluster
 	} else {
 		m.eventsHandler.AddEvent(ctx, *c.ID, nil, models.EventSeverityInfo,
 			fmt.Sprintf("Registered add-hosts cluster \"%s\"", c.Name), time.Now())
+	}
+	return err
+}
+
+func (m *Manager) RegisterPoolCluster(ctx context.Context, c *common.Cluster) error {
+	err := m.registrationAPI.RegisterPoolCluster(ctx, c)
+	if err != nil {
+		m.eventsHandler.AddEvent(ctx, *c.ID, nil, models.EventSeverityError,
+			fmt.Sprintf("Failed to register pool cluster with name \"%s\". Error: %s", c.Name, err.Error()), time.Now())
+	} else {
+		m.eventsHandler.AddEvent(ctx, *c.ID, nil, models.EventSeverityInfo,
+			fmt.Sprintf("Registered pool cluster \"%s\"", c.Name), time.Now())
 	}
 	return err
 }
@@ -564,6 +578,7 @@ func CanDownloadFiles(c *common.Cluster) (err error) {
 		models.ClusterStatusInstalled,
 		models.ClusterStatusError,
 		models.ClusterStatusAddingHosts,
+		models.ClusterStatusPoolCluster,
 		models.ClusterStatusCancelled,
 	}
 	if !funk.Contains(allowedStatuses, clusterStatus) {
@@ -615,7 +630,7 @@ func (m *Manager) UploadIngressCert(c *common.Cluster) (err error) {
 
 func (m *Manager) AcceptRegistration(c *common.Cluster) (err error) {
 	clusterStatus := swag.StringValue(c.Status)
-	allowedStatuses := []string{models.ClusterStatusInsufficient, models.ClusterStatusReady, models.ClusterStatusPendingForInput, models.ClusterStatusAddingHosts}
+	allowedStatuses := []string{models.ClusterStatusInsufficient, models.ClusterStatusReady, models.ClusterStatusPendingForInput, models.ClusterStatusAddingHosts, models.ClusterStatusPoolCluster}
 	if !funk.ContainsString(allowedStatuses, clusterStatus) {
 		if clusterStatus == models.ClusterStatusInstalled {
 			err = errors.Errorf("Cannot add host to a cluster that is already installed, please use the day2 cluster option")
@@ -628,7 +643,7 @@ func (m *Manager) AcceptRegistration(c *common.Cluster) (err error) {
 
 func (m *Manager) VerifyClusterUpdatability(c *common.Cluster) (err error) {
 	clusterStatus := swag.StringValue(c.Status)
-	allowedStatuses := []string{models.ClusterStatusInsufficient, models.ClusterStatusReady, models.ClusterStatusPendingForInput, models.ClusterStatusAddingHosts}
+	allowedStatuses := []string{models.ClusterStatusInsufficient, models.ClusterStatusReady, models.ClusterStatusPendingForInput, models.ClusterStatusAddingHosts, models.ClusterStatusPoolCluster}
 	if !funk.ContainsString(allowedStatuses, clusterStatus) {
 		err = errors.Errorf("Cluster %s is in %s state, cluster can be updated only in one of %s", c.ID, clusterStatus, allowedStatuses)
 	}

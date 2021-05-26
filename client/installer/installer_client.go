@@ -136,6 +136,9 @@ type API interface {
 	   RegisterHost Registers a new OpenShift host.*/
 	RegisterHost(ctx context.Context, params *RegisterHostParams) (*RegisterHostCreated, error)
 	/*
+	   RegisterPoolCluster Create a new pool cluster definition, used for holding nodes that will later be moved to day1/day2 clusters*/
+	RegisterPoolCluster(ctx context.Context, params *RegisterPoolClusterParams) (*RegisterPoolClusterCreated, error)
+	/*
 	   ResetCluster Resets a failed installation.*/
 	ResetCluster(ctx context.Context, params *ResetClusterParams) (*ResetClusterAccepted, error)
 	/*
@@ -1149,6 +1152,31 @@ func (a *Client) RegisterHost(ctx context.Context, params *RegisterHostParams) (
 		return nil, err
 	}
 	return result.(*RegisterHostCreated), nil
+
+}
+
+/*
+RegisterPoolCluster Create a new pool cluster definition, used for holding nodes that will later be moved to day1/day2 clusters
+*/
+func (a *Client) RegisterPoolCluster(ctx context.Context, params *RegisterPoolClusterParams) (*RegisterPoolClusterCreated, error) {
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "RegisterPoolCluster",
+		Method:             "POST",
+		PathPattern:        "/pool_clusters",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &RegisterPoolClusterReader{formats: a.formats},
+		AuthInfo:           a.authInfo,
+		Context:            ctx,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*RegisterPoolClusterCreated), nil
 
 }
 

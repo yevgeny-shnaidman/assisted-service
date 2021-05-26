@@ -34,6 +34,7 @@ const (
 	statusInfoPendingForInput                 = "User input required"
 	statusInfoError                           = "cluster has hosts in error"
 	statusInfoAddingHosts                     = "cluster is adding hosts to existing OCP cluster"
+	statusInfoPoolHosts                       = "cluster is storing hosts for later use by other clusters"
 	statusInfoInstallingPendingUserAction     = "Cluster has hosts with wrong boot order"
 	statusInfoUnpreparingHostExists           = "At least one host has stopped preparing for installation"
 	statusInfoClusterFailedToPrepare          = "Cluster failed to prepare for installation"

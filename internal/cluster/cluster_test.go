@@ -1117,7 +1117,7 @@ var _ = Describe("VerifyRegisterHost", func() {
 		db                 *gorm.DB
 		id                 strfmt.UUID
 		clusterApi         *Manager
-		preInstalledError  string = "Host can register only in one of the following states: [insufficient ready pending-for-input adding-hosts]"
+		preInstalledError  string = "Host can register only in one of the following states: [insufficient ready pending-for-input adding-hosts pool-cluster]"
 		postInstalledError string = "Cannot add host to a cluster that is already installed, please use the day2 cluster option"
 		dbName             string
 	)
@@ -1172,7 +1172,7 @@ var _ = Describe("VerifyClusterUpdatability", func() {
 		db          *gorm.DB
 		id          strfmt.UUID
 		clusterApi  *Manager
-		errTemplate = "Cluster %s is in %s state, cluster can be updated only in one of [insufficient ready pending-for-input adding-hosts]"
+		errTemplate = "Cluster %s is in %s state, cluster can be updated only in one of [insufficient ready pending-for-input adding-hosts pool-cluster]"
 		dbName      string
 	)
 

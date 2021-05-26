@@ -80,6 +80,20 @@ func (mr *MockRegistrationAPIMockRecorder) RegisterAddHostsOCPCluster(c, db inte
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterAddHostsOCPCluster", reflect.TypeOf((*MockRegistrationAPI)(nil).RegisterAddHostsOCPCluster), c, db)
 }
 
+// RegisterPoolCluster mocks base method
+func (m *MockRegistrationAPI) RegisterPoolCluster(ctx context.Context, c *common.Cluster) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RegisterPoolCluster", ctx, c)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RegisterPoolCluster indicates an expected call of RegisterPoolCluster
+func (mr *MockRegistrationAPIMockRecorder) RegisterPoolCluster(ctx, c interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterPoolCluster", reflect.TypeOf((*MockRegistrationAPI)(nil).RegisterPoolCluster), ctx, c)
+}
+
 // DeregisterCluster mocks base method
 func (m *MockRegistrationAPI) DeregisterCluster(ctx context.Context, c *common.Cluster) error {
 	m.ctrl.T.Helper()
@@ -209,6 +223,20 @@ func (m *MockAPI) RegisterAddHostsOCPCluster(c *common.Cluster, db *gorm.DB) err
 func (mr *MockAPIMockRecorder) RegisterAddHostsOCPCluster(c, db interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterAddHostsOCPCluster", reflect.TypeOf((*MockAPI)(nil).RegisterAddHostsOCPCluster), c, db)
+}
+
+// RegisterPoolCluster mocks base method
+func (m *MockAPI) RegisterPoolCluster(ctx context.Context, c *common.Cluster) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RegisterPoolCluster", ctx, c)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RegisterPoolCluster indicates an expected call of RegisterPoolCluster
+func (mr *MockAPIMockRecorder) RegisterPoolCluster(ctx, c interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterPoolCluster", reflect.TypeOf((*MockAPI)(nil).RegisterPoolCluster), ctx, c)
 }
 
 // DeregisterCluster mocks base method

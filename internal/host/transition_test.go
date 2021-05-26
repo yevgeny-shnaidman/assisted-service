@@ -79,7 +79,7 @@ var _ = Describe("RegisterHost", func() {
 	})
 
 	It("register_new", func() {
-		Expect(hapi.RegisterHost(ctx, &models.Host{ID: &hostId, ClusterID: clusterId, DiscoveryAgentVersion: "v1.0.1"}, db)).ShouldNot(HaveOccurred())
+		Expect(hapi.RegisterHost(ctx, &models.Host{ID: &hostId, ClusterID: clusterId, Kind: swag.String(models.HostKindHost), DiscoveryAgentVersion: "v1.0.1"}, db)).ShouldNot(HaveOccurred())
 		h := hostutil.GetHostFromDB(hostId, clusterId, db)
 		Expect(swag.StringValue(h.Status)).Should(Equal(models.HostStatusDiscovering))
 		Expect(h.DiscoveryAgentVersion).To(Equal("v1.0.1"))
@@ -91,6 +91,7 @@ var _ = Describe("RegisterHost", func() {
 			progressStage         models.HostStage
 			srcState              string
 			dstState              string
+			hostKind              string
 			errorCode             int32
 			expectedEventInfo     string
 			expectedEventStatus   string
@@ -100,6 +101,7 @@ var _ = Describe("RegisterHost", func() {
 				name:                "discovering",
 				srcState:            models.HostStatusInstalling,
 				dstState:            models.HostStatusError,
+				hostKind:            models.HostKindHost,
 				expectedEventInfo:   "Host %s: updated status from \"installing\" to \"error\" (The host unexpectedly restarted during the installation)",
 				expectedEventStatus: models.EventSeverityError,
 			},
@@ -107,6 +109,7 @@ var _ = Describe("RegisterHost", func() {
 				name:                "insufficient",
 				srcState:            models.HostStatusInstallingInProgress,
 				dstState:            models.HostStatusError,
+				hostKind:            models.HostKindHost,
 				expectedEventInfo:   "Host %s: updated status from \"installing-in-progress\" to \"error\" (The host unexpectedly restarted during the installation)",
 				expectedEventStatus: models.EventSeverityError,
 			},
@@ -115,6 +118,7 @@ var _ = Describe("RegisterHost", func() {
 				progressStage:         models.HostStageRebooting,
 				srcState:              models.HostStatusInstallingPendingUserAction,
 				dstState:              models.HostStatusInstallingPendingUserAction,
+				hostKind:              models.HostKindHost,
 				errorCode:             http.StatusForbidden,
 				expectedEventInfo:     "",
 				expectedNilStatusInfo: true,
@@ -130,6 +134,7 @@ var _ = Describe("RegisterHost", func() {
 					Role:      models.HostRoleMaster,
 					Inventory: defaultHwInfo,
 					Status:    swag.String(t.srcState),
+					Kind:      swag.String(t.hostKind),
 					Progress: &models.HostProgressInfo{
 						CurrentStage: t.progressStage,
 					},
@@ -142,6 +147,7 @@ var _ = Describe("RegisterHost", func() {
 				err := hapi.RegisterHost(ctx, &models.Host{
 					ID:        &hostId,
 					ClusterID: clusterId,
+					Kind:      swag.String(t.hostKind),
 					Status:    swag.String(t.srcState),
 				},
 					db)
@@ -172,6 +178,7 @@ var _ = Describe("RegisterHost", func() {
 			ID:        &hostId,
 			ClusterID: clusterId,
 			Role:      models.HostRoleMaster,
+			Kind:      swag.String(models.HostKindHost),
 			Inventory: defaultHwInfo,
 			Status:    swag.String(models.HostStatusDisabled),
 		}).Error).ShouldNot(HaveOccurred())
@@ -179,6 +186,7 @@ var _ = Describe("RegisterHost", func() {
 		Expect(hapi.RegisterHost(ctx, &models.Host{
 			ID:                    &hostId,
 			ClusterID:             clusterId,
+			Kind:                  swag.String(models.HostKindHost),
 			Status:                swag.String(models.HostStatusDisabled),
 			DiscoveryAgentVersion: "v2.0.5",
 		},
@@ -189,6 +197,7 @@ var _ = Describe("RegisterHost", func() {
 		Expect(db.Create(&models.Host{
 			ID:        &hostId,
 			ClusterID: clusterId,
+			Kind:      swag.String(models.HostKindHost),
 			Role:      models.HostRoleMaster,
 			Inventory: defaultHwInfo,
 			Status:    swag.String(models.HostStatusError),
@@ -197,6 +206,7 @@ var _ = Describe("RegisterHost", func() {
 		Expect(hapi.RegisterHost(ctx, &models.Host{
 			ID:                    &hostId,
 			ClusterID:             clusterId,
+			Kind:                  swag.String(models.HostKindHost),
 			Status:                swag.String(models.HostStatusError),
 			DiscoveryAgentVersion: "v2.0.5",
 		},
@@ -248,6 +258,7 @@ var _ = Describe("RegisterHost", func() {
 				Expect(db.Create(&models.Host{
 					ID:        &hostId,
 					ClusterID: clusterId,
+					Kind:      swag.String(models.HostKindHost),
 					Role:      models.HostRoleMaster,
 					Inventory: defaultHwInfo,
 					Status:    swag.String(t.srcState),
@@ -268,6 +279,7 @@ var _ = Describe("RegisterHost", func() {
 				Expect(hapi.RegisterHost(ctx, &models.Host{
 					ID:                    &hostId,
 					ClusterID:             clusterId,
+					Kind:                  swag.String(models.HostKindHost),
 					Status:                swag.String(t.srcState),
 					DiscoveryAgentVersion: discoveryAgentVersion,
 				},
@@ -295,6 +307,7 @@ var _ = Describe("RegisterHost", func() {
 				Expect(db.Create(&models.Host{
 					ID:        &hostId,
 					ClusterID: clusterId,
+					Kind:      swag.String(models.HostKindHost),
 					Role:      models.HostRoleMaster,
 					Inventory: defaultHwInfo,
 					Status:    swag.String(t.srcState),
@@ -303,6 +316,7 @@ var _ = Describe("RegisterHost", func() {
 				Expect(hapi.RegisterHost(ctx, &models.Host{
 					ID:        &hostId,
 					ClusterID: clusterId,
+					Kind:      swag.String(models.HostKindHost),
 					Status:    swag.String(t.srcState),
 				},
 					db)).Should(HaveOccurred())
@@ -417,6 +431,7 @@ var _ = Describe("RegisterHost", func() {
 				Expect(hapi.RegisterHost(ctx, &models.Host{
 					ID:        &hostId,
 					ClusterID: clusterId,
+					Kind:      &t.hostKind,
 					Status:    swag.String(t.srcState),
 				},
 					db)).ShouldNot(HaveOccurred())
@@ -2170,7 +2185,8 @@ var _ = Describe("Refresh Host", func() {
 			dstState      string
 			inventory     string
 			role          models.HostRole
-			kind          string
+			hostKind      string
+			clusterKind   string
 			ntpSources    []*models.NtpSource
 			imageStatuses map[string]*models.ContainerImageAvailability
 
@@ -2188,6 +2204,8 @@ var _ = Describe("Refresh Host", func() {
 				name:              "discovering to disconnected",
 				role:              models.HostRoleAutoAssign,
 				validCheckInTime:  false,
+				hostKind:          models.HostKindHost,
+				clusterKind:       models.ClusterKindCluster,
 				srcState:          models.HostStatusDiscovering,
 				dstState:          models.HostStatusDisconnected,
 				statusInfoChecker: makeValueChecker(statusInfoDisconnected),
@@ -2213,6 +2231,8 @@ var _ = Describe("Refresh Host", func() {
 				name:              "insufficient to disconnected",
 				role:              models.HostRoleAutoAssign,
 				validCheckInTime:  false,
+				hostKind:          models.HostKindHost,
+				clusterKind:       models.ClusterKindCluster,
 				srcState:          models.HostStatusInsufficient,
 				dstState:          models.HostStatusDisconnected,
 				statusInfoChecker: makeValueChecker(statusInfoDisconnected),
@@ -2238,6 +2258,7 @@ var _ = Describe("Refresh Host", func() {
 				name:              "known to disconnected",
 				role:              models.HostRoleAutoAssign,
 				validCheckInTime:  false,
+				hostKind:          models.HostKindHost,
 				srcState:          models.HostStatusKnown,
 				dstState:          models.HostStatusDisconnected,
 				statusInfoChecker: makeValueChecker(statusInfoDisconnected),
@@ -2247,6 +2268,8 @@ var _ = Describe("Refresh Host", func() {
 				name:              "pending to disconnected",
 				role:              models.HostRoleAutoAssign,
 				validCheckInTime:  false,
+				hostKind:          models.HostKindHost,
+				clusterKind:       models.ClusterKindCluster,
 				srcState:          models.HostStatusPendingForInput,
 				dstState:          models.HostStatusDisconnected,
 				statusInfoChecker: makeValueChecker(statusInfoDisconnected),
@@ -2272,6 +2295,8 @@ var _ = Describe("Refresh Host", func() {
 				name:              "disconnected to disconnected",
 				role:              models.HostRoleAutoAssign,
 				validCheckInTime:  false,
+				hostKind:          models.HostKindHost,
+				clusterKind:       models.ClusterKindCluster,
 				srcState:          models.HostStatusDisconnected,
 				dstState:          models.HostStatusDisconnected,
 				statusInfoChecker: makeValueChecker(statusInfoDisconnected),
@@ -2297,6 +2322,8 @@ var _ = Describe("Refresh Host", func() {
 				name:              "disconnected to discovering",
 				role:              models.HostRoleAutoAssign,
 				validCheckInTime:  true,
+				hostKind:          models.HostKindHost,
+				clusterKind:       models.ClusterKindCluster,
 				srcState:          models.HostStatusDisconnected,
 				dstState:          models.HostStatusDiscovering,
 				statusInfoChecker: makeValueChecker(statusInfoDiscovering),
@@ -2321,6 +2348,8 @@ var _ = Describe("Refresh Host", func() {
 				name:              "discovering to discovering",
 				role:              models.HostRoleAutoAssign,
 				validCheckInTime:  true,
+				hostKind:          models.HostKindHost,
+				clusterKind:       models.ClusterKindCluster,
 				srcState:          models.HostStatusDiscovering,
 				dstState:          models.HostStatusDiscovering,
 				statusInfoChecker: makeValueChecker(statusInfoDiscovering),
@@ -2346,6 +2375,8 @@ var _ = Describe("Refresh Host", func() {
 				name:             "disconnected to insufficient (1)",
 				role:             models.HostRoleAutoAssign,
 				validCheckInTime: true,
+				hostKind:         models.HostKindHost,
+				clusterKind:      models.ClusterKindCluster,
 				srcState:         models.HostStatusDisconnected,
 				dstState:         models.HostStatusInsufficient,
 				statusInfoChecker: makeValueChecker(formatStatusInfoFailedValidation(statusInfoInsufficientHardware,
@@ -2377,6 +2408,8 @@ var _ = Describe("Refresh Host", func() {
 				name:             "insufficient to insufficient (1)",
 				role:             models.HostRoleAutoAssign,
 				validCheckInTime: true,
+				hostKind:         models.HostKindHost,
+				clusterKind:      models.ClusterKindCluster,
 				srcState:         models.HostStatusInsufficient,
 				dstState:         models.HostStatusInsufficient,
 				statusInfoChecker: makeValueChecker(formatStatusInfoFailedValidation(statusInfoInsufficientHardware,
@@ -2408,6 +2441,8 @@ var _ = Describe("Refresh Host", func() {
 				name:             "discovering to insufficient (1)",
 				role:             models.HostRoleAutoAssign,
 				validCheckInTime: true,
+				hostKind:         models.HostKindHost,
+				clusterKind:      models.ClusterKindCluster,
 				srcState:         models.HostStatusDiscovering,
 				dstState:         models.HostStatusInsufficient,
 				statusInfoChecker: makeValueChecker(formatStatusInfoFailedValidation(statusInfoInsufficientHardware,
@@ -2439,6 +2474,7 @@ var _ = Describe("Refresh Host", func() {
 				name:              "pending to insufficient (1)",
 				role:              models.HostRoleAutoAssign,
 				validCheckInTime:  true,
+				hostKind:          models.HostKindHost,
 				srcState:          models.HostStatusPendingForInput,
 				dstState:          models.HostStatusPendingForInput,
 				statusInfoChecker: makeValueChecker(""),
@@ -2449,6 +2485,8 @@ var _ = Describe("Refresh Host", func() {
 				name:             "known to insufficient (1)",
 				role:             models.HostRoleAutoAssign,
 				validCheckInTime: true,
+				hostKind:         models.HostKindHost,
+				clusterKind:      models.ClusterKindCluster,
 				srcState:         models.HostStatusKnown,
 				dstState:         models.HostStatusInsufficient,
 				statusInfoChecker: makeValueChecker("Host does not meet the minimum hardware requirements: " +
@@ -2463,6 +2501,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:             "known to pending",
 				validCheckInTime: true,
+				hostKind:         models.HostKindHost,
+				clusterKind:      models.ClusterKindCluster,
 				srcState:         models.HostStatusKnown,
 				dstState:         models.HostStatusPendingForInput,
 				role:             models.HostRoleWorker,
@@ -2491,6 +2531,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:             "pending to pending",
 				validCheckInTime: true,
+				hostKind:         models.HostKindHost,
+				clusterKind:      models.ClusterKindCluster,
 				srcState:         models.HostStatusPendingForInput,
 				dstState:         models.HostStatusPendingForInput,
 				role:             models.HostRoleWorker,
@@ -2518,6 +2560,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "disconnected to insufficient (2)",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusDisconnected,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "5.6.7.0/24",
@@ -2550,6 +2594,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "discovering to insufficient (2)",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusDiscovering,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "5.6.7.0/24",
@@ -2584,6 +2630,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "discovering to insufficient (invalid system vendor)",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusDiscovering,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -2616,6 +2664,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "insufficient to insufficient (2)",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusInsufficient,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -2645,6 +2695,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "pending to insufficient (2)",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusPendingForInput,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -2674,6 +2726,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "known to insufficient (2)",
 				validCheckInTime:   true,
+				clusterKind:        models.ClusterKindCluster,
+				hostKind:           models.HostKindHost,
 				srcState:           models.HostStatusKnown,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "5.6.7.0/24",
@@ -2702,8 +2756,10 @@ var _ = Describe("Refresh Host", func() {
 				errorExpected: false,
 			},
 			{
-				name:               "insufficient to insufficient (2)",
+				name:               "insufficient to insufficient (3)",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusInsufficient,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "5.6.7.0/24",
@@ -2735,6 +2791,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "insufficient to insufficient (localhost)",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusInsufficient,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -2765,6 +2823,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "discovering to known",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusDiscovering,
 				dstState:           models.HostStatusKnown,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -2794,6 +2854,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "discovering to known user managed networking",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusDiscovering,
 				dstState:           models.HostStatusKnown,
 				imageStatuses:      map[string]*models.ContainerImageAvailability{common.TestDefaultConfig.ImageName: common.TestImageStatusesSuccess},
@@ -2824,6 +2886,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "insufficient to known",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusInsufficient,
 				dstState:           models.HostStatusKnown,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -2853,6 +2917,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "insufficient to insufficient (failed disk info)",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusInsufficient,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -2883,6 +2949,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "insufficient to known (successful disk info)",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusInsufficient,
 				dstState:           models.HostStatusKnown,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -2913,6 +2981,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "pending to known",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusPendingForInput,
 				dstState:           models.HostStatusKnown,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -2941,6 +3011,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "pending to known IPv6",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusPendingForInput,
 				dstState:           models.HostStatusKnown,
 				machineNetworkCidr: "1001:db8::/120",
@@ -2969,6 +3041,7 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "known to known",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
 				srcState:           models.HostStatusKnown,
 				dstState:           models.HostStatusKnown,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -2998,6 +3071,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "known to insufficient",
 				validCheckInTime:   true,
+				clusterKind:        models.ClusterKindCluster,
+				hostKind:           models.HostKindHost,
 				srcState:           models.HostStatusKnown,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -3028,6 +3103,7 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "known to insufficient + additional hosts",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
 				srcState:           models.HostStatusKnown,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -3070,7 +3146,7 @@ var _ = Describe("Refresh Host", func() {
 				name:              "AddedtoExistingCluster to AddedtoExistingCluster for day2 cloud",
 				srcState:          models.HostStatusAddedToExistingCluster,
 				dstState:          models.HostStatusAddedToExistingCluster,
-				kind:              models.HostKindAddToExistingClusterHost,
+				hostKind:          models.HostKindAddToExistingClusterHost,
 				role:              models.HostRoleWorker,
 				statusInfoChecker: makeValueChecker(""),
 				errorExpected:     false,
@@ -3078,6 +3154,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "CNV + LSO enabled: known to insufficient with 1 worker",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusKnown,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -3109,6 +3187,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "CNV + LSO enabled: insufficient to insufficient with 1 master",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusInsufficient,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -3144,6 +3224,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "CNV + LSO enabled: known to known with sufficient CPU and memory with 3 master",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusKnown,
 				dstState:           models.HostStatusKnown,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -3173,6 +3255,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "CNV + OCS enabled: known to known with sufficient CPU and memory with 3 master",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusKnown,
 				dstState:           models.HostStatusKnown,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -3202,6 +3286,8 @@ var _ = Describe("Refresh Host", func() {
 			{
 				name:               "CNV + OCS enabled: known to insufficient with lack of memory with 3 workers",
 				validCheckInTime:   true,
+				hostKind:           models.HostKindHost,
+				clusterKind:        models.ClusterKindCluster,
 				srcState:           models.HostStatusKnown,
 				dstState:           models.HostStatusInsufficient,
 				machineNetworkCidr: "1.2.3.0/24",
@@ -3253,7 +3339,7 @@ var _ = Describe("Refresh Host", func() {
 				host.Inventory = t.inventory
 				host.Role = t.role
 				host.CheckedInAt = hostCheckInAt
-				host.Kind = swag.String(t.kind)
+				host.Kind = swag.String(t.hostKind)
 				bytes, err := json.Marshal(t.ntpSources)
 				Expect(err).ShouldNot(HaveOccurred())
 				host.NtpSources = string(bytes)
@@ -3269,7 +3355,7 @@ var _ = Describe("Refresh Host", func() {
 					h.Inventory = t.inventory
 					h.Role = t.role
 					h.CheckedInAt = hostCheckInAt
-					h.Kind = swag.String(t.kind)
+					h.Kind = swag.String(t.hostKind)
 					h.RequestedHostname = fmt.Sprintf("additional-host-%d", i)
 					bytes, err = json.Marshal(t.ntpSources)
 					Expect(err).ShouldNot(HaveOccurred())
@@ -3280,6 +3366,7 @@ var _ = Describe("Refresh Host", func() {
 				// Test setup - Cluster creation
 				cluster = hostutil.GenerateTestCluster(clusterId, t.machineNetworkCidr)
 				cluster.UserManagedNetworking = &t.userManagedNetworking
+				cluster.Kind = swag.String(t.clusterKind)
 				if t.connectivity == "" {
 					cluster.ConnectivityMajorityGroups = fmt.Sprintf("{\"%s\":[\"%s\"]}", t.machineNetworkCidr, hostId.String())
 				} else {
@@ -4110,7 +4197,115 @@ var _ = Describe("Refresh Host", func() {
 			})
 		}
 	})
+	Context("Pool Cluster Host Refresh Status", func() {
+		var srcState string
+		tests := []struct {
+			// Test parameters
+			name               string
+			statusInfoChecker  statusInfoChecker
+			validationsChecker *validationsChecker
+			validCheckInTime   bool
+			errorExpected      bool
 
+			// Host fields
+			srcState    string
+			dstState    string
+			inventory   string
+			role        models.HostRole
+			hostKind    string
+			clusterKind string
+
+			// Cluster fields
+			machineNetworkCidr    string
+			connectivity          string
+			userManagedNetworking bool
+			disksInfo             string
+		}{
+			{
+				name:              "discovering to ready to move",
+				role:              models.HostRoleAutoAssign,
+				validCheckInTime:  true,
+				clusterKind:       models.ClusterKindPoolCluster,
+				hostKind:          models.HostKindPoolClusterHost,
+				srcState:          models.HostStatusDiscovering,
+				dstState:          models.HostStatusReadyToBeMoved,
+				statusInfoChecker: makeValueChecker(statusInfoHostReadyToBeMoved),
+				disksInfo:         createDiskInfo("/dev/sda", 10, 0),
+				inventory:         hostutil.GenerateMasterInventory(),
+				errorExpected:     false,
+			},
+			{
+				name:             "discovering to insufficient",
+				inventory:        insufficientHWInventory(),
+				role:             models.HostRoleAutoAssign,
+				validCheckInTime: true,
+				clusterKind:      models.ClusterKindPoolCluster,
+				hostKind:         models.HostKindPoolClusterHost,
+				srcState:         models.HostStatusDiscovering,
+				dstState:         models.HostStatusInsufficient,
+				statusInfoChecker: makeValueChecker("Host does not meet the minimum hardware requirements: " +
+					"Host couldn't synchronize with any NTP server ; Machine Network CIDR is undefined; the Machine " +
+					"Network CIDR can be defined by setting either the API or Ingress virtual IPs ; Require a disk of at " +
+					"least 120 GB ; Require at least 8.00 GiB RAM for role auto-assign, found only 130 bytes ; " +
+					"The host is not eligible to participate in Openshift Cluster because the minimum required RAM for " +
+					"any role is 8.00 GiB, found only 130 bytes"),
+				errorExpected: false,
+			},
+		}
+		for i := range tests {
+			t := tests[i]
+			It(t.name, func() {
+				// Test setup - Host creation
+				mockDefaultClusterHostRequirements(mockHwValidator)
+				hostCheckInAt := strfmt.DateTime(time.Now())
+				if !t.validCheckInTime {
+					// Timeout for checkin is 3 minutes so subtract 4 minutes from the current time
+					hostCheckInAt = strfmt.DateTime(time.Now().Add(-4 * time.Minute))
+				}
+				srcState = t.srcState
+				host = hostutil.GenerateTestHost(hostId, clusterId, srcState)
+				host.Inventory = t.inventory
+				host.Role = t.role
+				host.CheckedInAt = hostCheckInAt
+				host.Kind = swag.String(t.hostKind)
+				host.DisksInfo = t.disksInfo
+				Expect(db.Create(&host).Error).ShouldNot(HaveOccurred())
+
+				// Test setup - Cluster creation
+				cluster = hostutil.GenerateTestCluster(clusterId, t.machineNetworkCidr)
+				cluster.UserManagedNetworking = &t.userManagedNetworking
+				cluster.Kind = swag.String(t.clusterKind)
+				cluster.ConnectivityMajorityGroups = t.connectivity
+
+				Expect(db.Create(&cluster).Error).ToNot(HaveOccurred())
+
+				// Test definition
+				if srcState != t.dstState {
+					mockEvents.EXPECT().AddEvent(gomock.Any(), host.ClusterID, &hostId, hostutil.GetEventSeverityFromHostStatus(t.dstState),
+						gomock.Any(), gomock.Any())
+				}
+				Expect(getHost(clusterId, hostId).ValidationsInfo).To(BeEmpty())
+				err := hapi.RefreshStatus(ctx, &host, db)
+				if t.errorExpected {
+					Expect(err).To(HaveOccurred())
+				} else {
+					Expect(err).ToNot(HaveOccurred())
+					Expect(getHost(clusterId, hostId).ValidationsInfo).ToNot(BeEmpty())
+				}
+				var resultHost models.Host
+				Expect(db.Take(&resultHost, "id = ? and cluster_id = ?", hostId.String(), clusterId.String()).Error).ToNot(HaveOccurred())
+				Expect(resultHost.Role).To(Equal(t.role))
+				Expect(resultHost.Status).To(Equal(&t.dstState))
+				if resultHost.StatusInfo != nil {
+					fmt.Printf("YEV - resultHost.StatusInfo is <%s>, expecting <%s>\n", *resultHost.StatusInfo, statusInfoInsufficientHardware)
+				}
+				t.statusInfoChecker.check(resultHost.StatusInfo)
+				if t.validationsChecker != nil {
+					t.validationsChecker.check(resultHost.ValidationsInfo)
+				}
+			})
+		}
+	})
 	AfterEach(func() {
 		common.DeleteTestDB(db, dbName)
 		ctrl.Finish()

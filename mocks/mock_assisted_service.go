@@ -567,6 +567,20 @@ func (mr *MockInstallerAPIMockRecorder) RegisterHost(arg0, arg1 interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterHost", reflect.TypeOf((*MockInstallerAPI)(nil).RegisterHost), arg0, arg1)
 }
 
+// RegisterPoolCluster mocks base method
+func (m *MockInstallerAPI) RegisterPoolCluster(arg0 context.Context, arg1 installer.RegisterPoolClusterParams) middleware.Responder {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RegisterPoolCluster", arg0, arg1)
+	ret0, _ := ret[0].(middleware.Responder)
+	return ret0
+}
+
+// RegisterPoolCluster indicates an expected call of RegisterPoolCluster
+func (mr *MockInstallerAPIMockRecorder) RegisterPoolCluster(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterPoolCluster", reflect.TypeOf((*MockInstallerAPI)(nil).RegisterPoolCluster), arg0, arg1)
+}
+
 // ResetCluster mocks base method
 func (m *MockInstallerAPI) ResetCluster(arg0 context.Context, arg1 installer.ResetClusterParams) middleware.Responder {
 	m.ctrl.T.Helper()
